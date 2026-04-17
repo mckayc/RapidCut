@@ -1,8 +1,15 @@
 import re
+import os
 from typing import List, Dict, Any
 
 from pydub import AudioSegment
 from pydub.silence import detect_silence
+
+# Tell pydub exactly where ffmpeg lives (set by Electron host via FFMPEG_PATH env var).
+_ffmpeg = os.environ.get("FFMPEG_PATH")
+if _ffmpeg:
+    AudioSegment.converter = _ffmpeg
+    AudioSegment.ffmpeg = _ffmpeg
 
 DEFAULT_FILLER_WORDS = [
     "um", "uh", "like", "you know", "so", "basically",

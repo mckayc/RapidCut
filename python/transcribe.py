@@ -3,20 +3,29 @@ import subprocess
 import tempfile
 import os
 
+# Use the explicit path supplied by the Electron host; fall back to PATH lookup.
+FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
+
 
 def extract_audio(video_path: str) -> str:
     """Extract audio track from video to a temporary 16kHz mono WAV."""
     tmp = tempfile.mktemp(suffix=".wav")
-    subprocess.run(
-        [
-            "ffmpeg", "-i", video_path,
-            "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1",
-            tmp, "-y"
-        ],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            [
+                FFMPEG, "-i", video_path,
+                "-vn", "-acodec", "pcm_s16le",
+                "-ar", "16000", "-ac", "1",
+                tmp, "-y"
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"ffmpeg not found at '{FFMPEG}'. "
+            "Install ffmpeg or restart the app after installation."
+        )
     return tmp
 
 

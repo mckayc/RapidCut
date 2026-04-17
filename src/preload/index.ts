@@ -1,22 +1,34 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  /** Get the real filesystem path for a dragged File object */
+  // ── File path from drag-drop ──────────────────────────────────────────
   getFilePath: (file: File): string => webUtils.getPathForFile(file),
 
-  /** Open a save dialog; returns the chosen path or null if cancelled */
+  // ── Export / file I/O ─────────────────────────────────────────────────
   showSaveDialog: (defaultName: string): Promise<string | null> =>
     ipcRenderer.invoke('show-save-dialog', defaultName),
-
-  /** Write content to an absolute file path */
   writeFile: (filePath: string, content: string): Promise<void> =>
     ipcRenderer.invoke('write-file', filePath, content),
-
-  /** Read a file; returns null if it does not exist */
   readFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('read-file', filePath),
-
-  /** Get the Electron userData directory for persisting app data */
   getUserDataPath: (): Promise<string> =>
     ipcRenderer.invoke('get-user-data-path'),
+
+  // ── Dependency management ─────────────────────────────────────────────
+  checkDeps: (): Promise<{
+    python: { available: boolean; version?: string }
+    ffmpeg: { available: boolean; version?: string }
+  }> => ipcRenderer.invoke('check-deps'),
+
+  installPipDeps: (): Promise<{ success: boolean; output: string }> =>
+    ipcRenderer.invoke('install-pip-deps'),
+
+  installFfmpeg: (): Promise<{ success: boolean; output: string; manual?: string }> =>
+    ipcRenderer.invoke('install-ffmpeg'),
+
+  startServer: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('start-server'),
+
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke('open-external', url),
 })

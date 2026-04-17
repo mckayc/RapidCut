@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { exportXml } from '../api'
 
@@ -22,7 +22,8 @@ export default function ExportButton() {
       const sequenceName = fileName.replace(/\.[^.]+$/, '') + ' — RapidCut'
       const { xml } = await exportXml(filePath, keepSegments, settings.fps, sequenceName)
 
-      const defaultName = fileName.replace(/\.[^.]+$/, '') + '_rapidcut.xml'
+      const sourceDir = filePath.replace(/[/\\][^/\\]+$/, '')
+      const defaultName = sourceDir + '/' + fileName.replace(/\.[^.]+$/, '') + '_rapidcut.fcpxml'
       const savePath = await window.electronAPI.showSaveDialog(defaultName)
 
       if (savePath) {

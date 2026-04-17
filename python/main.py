@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+import subprocess
+import sys
 import uvicorn
 
 from transcribe import transcribe_file
@@ -21,6 +23,59 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/setup/check")
+def check_deps():
+    """Return availability of runtime dependencies."""
+    results: dict = {}
+
+    # ffmpeg
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-version"], capture_output=True, check=True, text=True
+        )
+        version_line = out.stdout.splitlines()[0] if out.stdout else "unknown"
+        results["ffmpeg"] = {"available": True, "version": version_line}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        results["ffmpeg"] = {"available": False}
+
+    # whisper
+    try:
+        import whisper  # noqa: F401
+        results["whisper"] = {"available": True}
+    except ImportError as e:
+        results["whisper"] = {"available": False, "error": str(e)}
+
+    # pydub
+    try:
+        from pydub import AudioSegment  # noqa: F401
+        results["pydub"] = {"available": True}
+    except ImportError as e:
+        results["pydub"] = {"available": False, "error": str(e)}
+
+    return results
+
+
+@app.post("/setup/install-pip")
+def install_pip_deps():
+    """Re-install Python dependencies from requirements.txt."""
+    import os
+    req_path = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
+    req_path = os.path.normpath(req_path)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", req_path],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        return {
+            "success": result.returncode == 0,
+            "output": result.stdout + result.stderr,
+        }
+    except Exception as e:
+        return {"success": False, "output": str(e)}
 
 
 class TranscribeRequest(BaseModel):
@@ -73,4 +128,6 @@ def export_endpoint(req: ExportRequest):
 
 
 if __name__ == "__main__":
+    import os
+    print(f"[RapidCut] FFMPEG_PATH={os.environ.get('FFMPEG_PATH', '(not set)')}", flush=True)
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")

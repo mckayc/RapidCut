@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from './store/useStore'
 import { transcribeFile, analyzeFile } from './api'
 import Header from './components/Header'
@@ -7,10 +7,14 @@ import SettingsPanel from './components/SettingsPanel'
 import TranscriptEditor from './components/TranscriptEditor'
 import FillerWordManager from './components/FillerWordManager'
 import ExportButton from './components/ExportButton'
+import SetupScreen from './components/SetupScreen'
 
 const DEBOUNCE_MS = 400
 
+type AppPhase = 'setup' | 'main'
+
 export default function App() {
+  const [phase, setPhase] = useState<AppPhase>('setup')
   const {
     mode,
     filePath,
@@ -121,14 +125,36 @@ export default function App() {
   const isReady = status === 'ready'
   const isError = status === 'error'
 
+  if (phase === 'setup') {
+    return <SetupScreen onReady={() => setPhase('main')} />
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[#0f1117] text-gray-200 overflow-hidden">
       <Header />
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Drop zone when idle */}
-        {isIdle && <DropZone onFile={handleFile} />}
+        {/* Idle: settings sidebar + drop zone */}
+        {isIdle && (
+          <>
+            <aside className="w-64 flex-shrink-0 border-r border-gray-800 overflow-y-auto bg-[#1a1d27]">
+              <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Settings
+                </span>
+                <button
+                  onClick={() => setShowFillerManager(true)}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  Edit filler words
+                </button>
+              </div>
+              <SettingsPanel showModelSelector={true} />
+            </aside>
+            <DropZone onFile={handleFile} />
+          </>
+        )}
 
         {/* Loading state */}
         {isLoading && (

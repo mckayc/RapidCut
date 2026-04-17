@@ -43,6 +43,17 @@ export type AppMode = 'auto' | 'edit'
 
 export type ManualToggle = 'keep' | 'cut'
 
+export interface DepInfo {
+  available: boolean
+  version?: string
+  error?: string
+}
+
+export interface DepsStatus {
+  python: DepInfo
+  ffmpeg: DepInfo
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -51,6 +62,11 @@ declare global {
       writeFile: (filePath: string, content: string) => Promise<void>
       readFile: (filePath: string) => Promise<string | null>
       getUserDataPath: () => Promise<string>
+      checkDeps: () => Promise<DepsStatus>
+      installPipDeps: () => Promise<{ success: boolean; output: string }>
+      installFfmpeg: () => Promise<{ success: boolean; output: string; manual?: string }>
+      startServer: () => Promise<{ success: boolean; error?: string }>
+      openExternal: (url: string) => Promise<void>
     }
   }
 }
