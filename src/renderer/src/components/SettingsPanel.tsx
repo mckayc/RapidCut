@@ -315,7 +315,13 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
             {settings.removeNoSpeech && (
               <div className="flex flex-col gap-3 pl-1">
                 <Slider
-                  label="Minimum Gap Duration"
+                  label="Silence Threshold"
+                  value={settings.silenceThresholdDb}
+                  min={-70} max={-10} step={1} unit=" dB"
+                  onChange={(v) => update('silenceThresholdDb', v)}
+                />
+                <Slider
+                  label="Minimum Silence Duration"
                   value={settings.minSilenceDurationMs}
                   min={100} max={2000} step={50} unit=" ms"
                   onChange={(v) => update('minSilenceDurationMs', v)}

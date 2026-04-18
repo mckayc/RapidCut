@@ -28,8 +28,14 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const DEFAULT_PRESET_NAME = 'Default'
 
+interface TimeRangeCut {
+  start: number
+  end: number
+}
+
 interface HistoryEntry {
   manualToggles: Record<number, ManualToggle>
+  manualTimeCuts: TimeRangeCut[]
 }
 
 interface AppState {
@@ -60,7 +66,14 @@ interface AppState {
   // Per-word manual overrides
   manualToggles: Record<number, ManualToggle>
   toggleWord: (index: number) => void
+  setWordOverride: (index: number, override: ManualToggle | undefined) => void
+  pushHistory: () => void
   clearToggles: () => void
+
+  // Time-range manual cuts (for sentence-level bulk operations)
+  manualTimeCuts: TimeRangeCut[]
+  addTimeCut: (start: number, end: number) => void
+  removeTimeCutsOverlapping: (start: number, end: number) => void
 
   // Settings
   settings: Settings
@@ -140,6 +153,7 @@ export const useStore = create<AppState>((set, get) => ({
       words: [],
       cutRegions: [],
       manualToggles: {},
+      manualTimeCuts: [],
       history: [],
       historyIndex: -1,
       status: 'idle',
@@ -157,11 +171,13 @@ export const useStore = create<AppState>((set, get) => ({
   setCutRegions: (cutRegions) => set({ cutRegions }),
 
   manualToggles: {},
+  manualTimeCuts: [],
+
   toggleWord: (index) => {
-    const { words, manualToggles, isWordCut, history, historyIndex } = get()
+    const { words, manualToggles, manualTimeCuts, isWordCut, history, historyIndex } = get()
     if (!words[index]) return
 
-    const prev = { manualToggles: { ...manualToggles } }
+    const prev = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
     const current = manualToggles[index]
 
     let next: Record<number, ManualToggle>
@@ -178,12 +194,68 @@ export const useStore = create<AppState>((set, get) => ({
     newHistory.push(prev)
     set({ manualToggles: next, history: newHistory, historyIndex: newHistory.length - 1 })
   },
+
+  setWordOverride: (index, override) => {
+    const { words, manualToggles } = get()
+    if (!words[index]) return
+    if (manualToggles[index] === override) return
+    const next = { ...manualToggles }
+    if (override === undefined) delete next[index]
+    else next[index] = override
+    set({ manualToggles: next })
+  },
+
+  pushHistory: () => {
+    const { manualToggles, manualTimeCuts, history, historyIndex } = get()
+    const entry = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
+    const newHistory = history.slice(0, historyIndex + 1)
+    newHistory.push(entry)
+    set({ history: newHistory, historyIndex: newHistory.length - 1 })
+  },
+
+  addTimeCut: (start, end) => {
+    const { manualToggles, manualTimeCuts, words, history, historyIndex } = get()
+    const prev = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
+    // Remove word-level 'keep' overrides for words inside this range
+    const newToggles = { ...manualToggles }
+    words.forEach((w, i) => {
+      if (w.start >= start && w.end <= end && newToggles[i] === 'keep') delete newToggles[i]
+    })
+    const newHistory = history.slice(0, historyIndex + 1)
+    newHistory.push(prev)
+    set({
+      manualTimeCuts: [...manualTimeCuts, { start, end }],
+      manualToggles: newToggles,
+      history: newHistory,
+      historyIndex: newHistory.length - 1,
+    })
+  },
+
+  removeTimeCutsOverlapping: (start, end) => {
+    const { manualToggles, manualTimeCuts, words, history, historyIndex } = get()
+    const prev = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
+    const newTimeCuts = manualTimeCuts.filter((c) => !(c.start < end && c.end > start))
+    // Remove word-level 'cut' overrides for words inside this range
+    const newToggles = { ...manualToggles }
+    words.forEach((w, i) => {
+      if (w.start >= start && w.end <= end && newToggles[i] === 'cut') delete newToggles[i]
+    })
+    const newHistory = history.slice(0, historyIndex + 1)
+    newHistory.push(prev)
+    set({
+      manualTimeCuts: newTimeCuts,
+      manualToggles: newToggles,
+      history: newHistory,
+      historyIndex: newHistory.length - 1,
+    })
+  },
+
   clearToggles: () =>
     set((s) => {
-      const prev = { manualToggles: { ...s.manualToggles } }
+      const prev = { manualToggles: { ...s.manualToggles }, manualTimeCuts: [...s.manualTimeCuts] }
       const newHistory = s.history.slice(0, s.historyIndex + 1)
       newHistory.push(prev)
-      return { manualToggles: {}, history: newHistory, historyIndex: newHistory.length - 1 }
+      return { manualToggles: {}, manualTimeCuts: [], history: newHistory, historyIndex: newHistory.length - 1 }
     }),
 
   settings: DEFAULT_SETTINGS,
@@ -332,13 +404,15 @@ export const useStore = create<AppState>((set, get) => ({
   undo: () => {
     const { history, historyIndex } = get()
     if (historyIndex < 0) return
-    set({ manualToggles: history[historyIndex].manualToggles, historyIndex: historyIndex - 1 })
+    const entry = history[historyIndex]
+    set({ manualToggles: entry.manualToggles, manualTimeCuts: entry.manualTimeCuts, historyIndex: historyIndex - 1 })
   },
   redo: () => {
-    const { history, historyIndex, manualToggles } = get()
+    const { history, historyIndex, manualToggles, manualTimeCuts } = get()
     if (historyIndex >= history.length - 1) return
-    history[historyIndex + 1] = { manualToggles: { ...manualToggles } }
-    set({ manualToggles: history[historyIndex + 1].manualToggles, historyIndex: historyIndex + 1 })
+    history[historyIndex + 1] = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
+    const entry = history[historyIndex + 1]
+    set({ manualToggles: entry.manualToggles, manualTimeCuts: entry.manualTimeCuts, historyIndex: historyIndex + 1 })
   },
   canUndo: () => get().historyIndex >= 0,
   canRedo: () => get().historyIndex < get().history.length - 1,
@@ -346,21 +420,28 @@ export const useStore = create<AppState>((set, get) => ({
   // ─── Derived ─────────────────────────────────────────────────────────────────
 
   isWordCut: (index) => {
-    const { words, cutRegions, manualToggles } = get()
+    const { words, cutRegions, manualToggles, manualTimeCuts } = get()
     const word = words[index]
     if (!word) return false
     const override = manualToggles[index]
     if (override === 'keep') return false
     if (override === 'cut') return true
+    if (manualTimeCuts.some((tc) => tc.start <= word.start && tc.end >= word.end)) return true
     return cutRegions.some((r) => r.start <= word.start && r.end >= word.end)
   },
 
   getKeepSegments: () => {
-    const { words, cutRegions, manualToggles, videoDuration } = get()
+    const { words, cutRegions, manualToggles, manualTimeCuts, videoDuration } = get()
     if (!videoDuration) return []
 
     let effectiveCuts: CutRegion[] = [...cutRegions]
 
+    // Apply time-range cuts (covers full sentence spans including inter-word gaps)
+    for (const tc of manualTimeCuts) {
+      effectiveCuts.push({ start: tc.start, end: tc.end, reason: 'manual' })
+    }
+
+    // Apply word-level overrides
     Object.entries(manualToggles).forEach(([idxStr, toggle]) => {
       const word = words[parseInt(idxStr)]
       if (!word) return
