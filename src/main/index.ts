@@ -13,6 +13,9 @@ const PIP_BIN = process.platform === 'win32' ? 'pip' : 'pip3'
 let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
+// Cache for dependency status to speed up load times
+let cachedDeps: { python: any; ffmpeg: any } | null = null
+
 // Register media protocol to allow loading local audio/video files
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
@@ -316,12 +319,22 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   protocol.handle('media', (request) => {
-    // Safely extract the path, handling potential double-slashes from URL joining
-    const rawPath = request.url.replace(/^media:\/\/+/, '')
-    const decodedPath = decodeURIComponent(rawPath)
-    const fileUrl = pathToFileURL(decodedPath).toString()
-    return net.fetch(fileUrl)
+    try {
+      const url = new URL(request.url)
+      const decodedPath = decodeURIComponent(url.searchParams.get('path') || '')
+      if (!decodedPath) throw new Error('No path provided to media protocol')
+      
+      const fileUrl = pathToFileURL(decodedPath).toString()
+      return net.fetch(fileUrl)
+    } catch (err) {
+      console.error(`[Main] Media protocol error: ${err}`)
+      return new Response('Invalid Path', { status: 400 })
+    }
   })
+
+  // Pre-flight check: Run dependency checks in the background as soon as the app starts
+  // so the results are ready by the time the renderer window finishes loading.
+  Promise.all([checkPython(), checkFfmpeg()]).then(([p, f]) => { cachedDeps = { python: p, ffmpeg: f } })
 
   createWindow()
   app.on('activate', () => {
@@ -343,12 +356,24 @@ app.on('quit', () => {
 // ─── IPC ──────────────────────────────────────────────────────────────────
 
 ipcMain.handle('check-deps', async () => {
+  // If we already have a cached result from pre-flight or a previous check, return it instantly
+  if (cachedDeps) return cachedDeps
+
   const [python, ffmpeg] = await Promise.all([checkPython(), checkFfmpeg()])
+  cachedDeps = { python, ffmpeg }
   return { python, ffmpeg }
 })
 
-ipcMain.handle('install-pip-deps', async () => installPipDeps())
-ipcMain.handle('install-ffmpeg', async () => installFfmpeg())
+ipcMain.handle('install-pip-deps', async () => {
+  const res = await installPipDeps()
+  if (res.success) cachedDeps = null // Force re-check after install
+  return res
+})
+ipcMain.handle('install-ffmpeg', async () => {
+  const res = await installFfmpeg()
+  if (res.success) cachedDeps = null // Force re-check after install
+  return res
+})
 ipcMain.handle('start-server', async () => startServer())
 ipcMain.handle('open-external', (_event, url: string) => shell.openExternal(url))
 

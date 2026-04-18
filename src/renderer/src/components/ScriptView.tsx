@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react'
+import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { useStore } from '../store/useStore'
 import type { Word } from '../types'
 
@@ -9,10 +9,16 @@ export default function ScriptView() {
     currentTime, 
     setCurrentTime, 
     playbackSpeed, 
-    setPlaybackSpeed 
+    setPlaybackSpeed,
+    videoDuration,
+    isWordCut
   } = useStore()
   
   const audioRef = useRef<HTMLAudioElement>(null)
+  const activeWordRef = useRef<HTMLSpanElement>(null)
+  
+  // Track active word index to prevent jitter and redundant scrolls
+  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1)
 
   // Sync playback speed
   useEffect(() => {
@@ -20,6 +26,33 @@ export default function ScriptView() {
       audioRef.current.playbackRate = playbackSpeed
     }
   }, [playbackSpeed])
+
+  // Update active word index based on time
+  useEffect(() => {
+    const index = words.findIndex(w => currentTime >= w.start && currentTime <= w.end)
+    if (index !== -1 && index !== activeWordIndex) {
+      setActiveWordIndex(index)
+    }
+  }, [currentTime, words, activeWordIndex])
+
+  // Auto-scroll only when active word changes and is out of view
+  useEffect(() => {
+    if (activeWordRef.current && activeWordIndex !== -1) {
+      activeWordRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest'
+      })
+    }
+  }, [activeWordIndex])
+
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value)
+    if (audioRef.current) {
+      audioRef.current.currentTime = time
+    }
+    setCurrentTime(time)
+  }, [setCurrentTime])
 
   // Heuristic: Group words into paragraphs based on pauses > 1.5s or sentence breaks
   const paragraphs = useMemo(() => {
@@ -52,63 +85,91 @@ export default function ScriptView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0f1117]">
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0f1117] overflow-hidden">
       {/* Audio Player Toolbar */}
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-gray-800 bg-[#1a1d27]">
+      <div className="sticky top-0 z-10 flex items-center gap-4 px-6 py-3 border-b border-gray-800 bg-[#1a1d27]/95 backdrop-blur-md flex-shrink-0">
         {audioPath ? (
-          <audio
-            ref={audioRef}
-            key={audioPath}
-            src={`media://${audioPath.replace(/\\/g, '/')}`}
-            controls
-            preload="auto"
-            onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-            className="h-8 flex-1"
-          />
+          <>
+            <audio
+              ref={audioRef}
+              key={audioPath}
+              src={`media://load?path=${encodeURIComponent(audioPath)}`}
+              preload="auto"
+              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+            />
+            <button 
+              onClick={() => audioRef.current?.paused ? audioRef.current.play() : audioRef.current?.pause()}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg hover:scale-105 active:scale-95 flex-shrink-0"
+            >
+              {audioRef.current?.paused ? (
+                <svg className="w-3.5 h-3.5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+              )}
+            </button>
+            
+            <div className="flex-1 flex items-center gap-4 bg-gray-900/50 px-4 py-2 rounded-full border border-gray-700/50">
+              <input
+                type="range"
+                min={0}
+                max={videoDuration || 0}
+                step={0.1}
+                value={currentTime}
+                onChange={handleSeek}
+                className="flex-1 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
+              />
+              <div className="flex items-center gap-1.5 text-[10px] font-mono tabular-nums">
+                <span className="text-blue-400">{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
+                <span className="text-gray-600">/</span>
+                <span>{new Date(videoDuration * 1000).toISOString().substr(14, 5)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-lg border border-gray-700/50 flex-shrink-0">
+              {[1, 1.5, 2].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setPlaybackSpeed(s)}
+                  className={`px-2 py-1 text-[10px] font-bold rounded transition-colors ${
+                    playbackSpeed === s ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="flex-1 text-xs text-gray-500 italic">
-            Audio playback unavailable (no source found)
+            Audio playback unavailable
           </div>
         )}
-        
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 uppercase font-bold">Speed</span>
-          <div className="flex bg-gray-800 rounded-lg p-1">
-            {[0.75, 1, 1.5, 2].map((s) => (
-              <button
-                key={s}
-                onClick={() => setPlaybackSpeed(s)}
-                className={`px-2 py-1 text-xs rounded ${
-                  playbackSpeed === s ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {s}x
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Script Content */}
-      <div className="flex-1 overflow-y-auto p-12 leading-relaxed text-lg">
+      <div className="flex-1 overflow-y-auto p-8 md:p-12 leading-relaxed text-lg scroll-smooth">
         <div className="max-w-3xl mx-auto space-y-8">
           {paragraphs.map((paragraph, pi) => {
             return (
               <p key={pi} className="text-gray-400">
                 {paragraph.map((word, wi) => {
                   const isActive = currentTime >= word.start && currentTime <= word.end
+                  const isCut = isWordCut(words.indexOf(word))
+                  
                   return (
                     <span
                       key={wi}
+                      ref={isActive ? activeWordRef : null}
                       onClick={() => {
                         if (audioRef.current) {
                           audioRef.current.currentTime = word.start
-                          audioRef.current.play()
+                          setCurrentTime(word.start)
+                          audioRef.current.play().catch(() => {})
                         }
                       }}
-                      className={`cursor-pointer transition-colors duration-150 px-0.5 rounded ${
+                      className={`cursor-pointer transition-colors duration-150 px-0.5 rounded ${isCut ? 'opacity-30 line-through decoration-red-500/50' : ''} ${
                         isActive
-                          ? 'bg-blue-500/30 text-blue-300 font-medium'
+                          ? 'bg-blue-500/30 text-blue-300'
                           : 'hover:text-gray-200'
                       }`}
                     >
