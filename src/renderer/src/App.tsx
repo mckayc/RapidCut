@@ -8,6 +8,7 @@ import TranscriptEditor from './components/TranscriptEditor'
 import FillerWordManager from './components/FillerWordManager'
 import ExportButton from './components/ExportButton'
 import SetupScreen from './components/SetupScreen'
+import ScriptView from './components/ScriptView'
 
 const DEBOUNCE_MS = 400
 
@@ -134,9 +135,9 @@ export default function App() {
         setStatus('transcribing', 'Transcribing audio…')
         try {
           const result = await transcribeFile(fp, settings.whisperModel)
-          words = result.words
+          words = result.words as Word[]
           duration = result.duration
-          setWords(words, duration)
+          setWords(words, duration, result.audio_path)
         } catch (err) {
           setStatus('error', err instanceof Error ? err.message : String(err))
           return
@@ -185,6 +186,7 @@ export default function App() {
   const isIdle = status === 'idle'
   const isLoading = status === 'transcribing' || status === 'analyzing'
   const isReady = status === 'ready'
+  const view = useStore((s) => s.view)
   const isError = status === 'error'
 
   if (phase === 'setup') {
@@ -260,7 +262,11 @@ export default function App() {
             </aside>
 
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <TranscriptEditor />
+              {view === 'edit' ? (
+                <TranscriptEditor />
+              ) : (
+                <ScriptView />
+              )}
 
               {/* Sticky export bar */}
               <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800 bg-[#0f1117] flex-shrink-0">

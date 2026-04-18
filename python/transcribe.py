@@ -58,7 +58,9 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
             "words": words,
             "duration": round(duration, 3),
             "text": result.get("text", "").strip(),
+            "audio_path": audio_path,
         }
-    finally:
+    except Exception as e:
         if os.path.exists(audio_path):
             os.unlink(audio_path)
+        raise e

@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
 import { join, delimiter } from 'path'
 import { spawn, exec, ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
 import { promisify } from 'util'
+import { pathToFileURL } from 'url'
 
 const execAsync = promisify(exec)
 const PYTHON_PORT = 8765
@@ -11,6 +12,11 @@ const PIP_BIN = process.platform === 'win32' ? 'pip' : 'pip3'
 
 let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
+
+// Register media protocol to allow loading local audio/video files
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
+])
 
 // ─── ffmpeg path persistence ───────────────────────────────────────────────
 // Stores a known-good ffmpeg bin dir across sessions (survives winget / download).
@@ -305,6 +311,11 @@ function createWindow(): void {
 // ─── App lifecycle ─────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  protocol.handle('media', (request) => {
+    const filePath = decodeURIComponent(request.url.slice('media://'.length))
+    return net.fetch(pathToFileURL(filePath).toString())
+  })
+
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

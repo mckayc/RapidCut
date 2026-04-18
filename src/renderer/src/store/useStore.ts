@@ -42,11 +42,18 @@ interface AppState {
   // Mode
   mode: AppMode
   setMode: (mode: AppMode) => void
+  view: 'edit' | 'script'
+  setView: (view: 'edit' | 'script') => void
 
   // File
   filePath: string | null
   fileName: string | null
+  audioPath: string | null
   videoDuration: number
+  currentTime: number
+  playbackSpeed: number
+  setCurrentTime: (time: number) => void
+  setPlaybackSpeed: (speed: number) => void
   setFile: (filePath: string, fileName: string) => void
   clearFile: () => void
 
@@ -57,7 +64,7 @@ interface AppState {
 
   // Transcript
   words: Word[]
-  setWords: (words: Word[], duration: number) => void
+  setWords: (words: Word[], duration: number, audioPath?: string) => void
 
   // Cut regions from server
   cutRegions: CutRegion[]
@@ -140,16 +147,23 @@ function syncPreset(
 export const useStore = create<AppState>((set, get) => ({
   mode: 'edit',
   setMode: (mode) => set({ mode }),
+  view: 'edit',
+  setView: (view) => set({ view }),
 
   filePath: null,
   fileName: null,
+  audioPath: null,
+  currentTime: 0,
+  playbackSpeed: 1,
   videoDuration: 0,
   setFile: (filePath, fileName) => set({ filePath, fileName }),
   clearFile: () =>
     set({
       filePath: null,
       fileName: null,
+      audioPath: null,
       videoDuration: 0,
+      currentTime: 0,
       words: [],
       cutRegions: [],
       manualToggles: {},
@@ -165,7 +179,11 @@ export const useStore = create<AppState>((set, get) => ({
   setStatus: (status, message = '') => set({ status, statusMessage: message }),
 
   words: [],
-  setWords: (words, duration) => set({ words, videoDuration: duration }),
+  setWords: (words, duration, audioPath) => 
+    set({ words, videoDuration: duration, audioPath: audioPath || null }),
+
+  setCurrentTime: (currentTime) => set({ currentTime }),
+  setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
 
   cutRegions: [],
   setCutRegions: (cutRegions) => set({ cutRegions }),

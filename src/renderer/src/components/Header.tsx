@@ -2,7 +2,7 @@ import React from 'react'
 import { useStore } from '../store/useStore'
 
 export default function Header() {
-  const { mode, setMode, status, canUndo, canRedo, undo, redo, clearFile, filePath } = useStore()
+  const { mode, setMode, view, setView, status, canUndo, canRedo, undo, redo, clearFile, filePath } = useStore()
   const isReady = status === 'ready'
 
   return (
@@ -35,6 +35,24 @@ export default function Header() {
           </button>
         ))}
       </div>
+
+      {/* View Toggle (Edit vs Script) */}
+      {isReady && (
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setView('edit')}
+            className={`text-sm font-medium ${view === 'edit' ? 'text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Timeline
+          </button>
+          <button
+            onClick={() => setView('script')}
+            className={`text-sm font-medium ${view === 'script' ? 'text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Full Script
+          </button>
+        </div>
+      )}
 
       {/* Undo / Redo — only in edit mode when ready */}
       <div className="flex items-center gap-2">
