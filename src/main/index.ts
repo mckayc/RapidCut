@@ -396,3 +396,39 @@ ipcMain.handle('read-file', (_event, filePath: string) => {
 })
 
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'))
+
+ipcMain.handle('get-system-fonts', async () => {
+  const fonts: Array<{ name: string; path: string }> = []
+  if (process.platform === 'win32') {
+    const fontDir = 'C:\\Windows\\Fonts'
+    if (existsSync(fontDir)) {
+      const files = readdirSync(fontDir)
+      for (const file of files) {
+        const lower = file.toLowerCase()
+        if (lower.endsWith('.ttf') || lower.endsWith('.otf')) {
+          fonts.push({ 
+            name: file.replace(/\.(ttf|otf)$/i, ''), 
+            path: join(fontDir, file) 
+          })
+        }
+      }
+    }
+  } else if (process.platform === 'darwin') {
+    const dirs = ['/Library/Fonts', '/System/Library/Fonts', join(app.getPath('home'), 'Library/Fonts')]
+    for (const dir of dirs) {
+      if (existsSync(dir)) {
+        const files = readdirSync(dir)
+        for (const file of files) {
+          const lower = file.toLowerCase()
+          if (lower.endsWith('.ttf') || lower.endsWith('.otf')) {
+            fonts.push({ 
+              name: file.replace(/\.(ttf|otf)$/i, ''), 
+              path: join(dir, file) 
+            })
+          }
+        }
+      }
+    }
+  }
+  return fonts.sort((a, b) => a.name.localeCompare(b.name))
+})

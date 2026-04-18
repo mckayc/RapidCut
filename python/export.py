@@ -78,9 +78,24 @@ def _frame_duration(fps_num: int, fps_den: int) -> str:
     return f"{f.numerator}/{f.denominator}s"
 
 
+def get_timecode_string(seconds: float, fps_num: int, fps_den: int) -> str:
+    """Converts seconds to HH_MM_SS_FF string."""
+    total_frames = round(seconds * fps_num / fps_den)
+    fps = fps_num / fps_den
+    
+    frames = total_frames % round(fps)
+    total_seconds = int(seconds)
+    ss = total_seconds % 60
+    mm = (total_seconds // 60) % 60
+    hh = total_seconds // 3600
+    
+    return f"{hh:02d}_{mm:02d}_{ss:02d}_{frames:02d}"
+
+
 def build_xml(
     file_path: str,
     keep_segments: List[Dict],
+    rendered_titles: List[Dict] = None,  # List of { path, startTime, duration, text }
     fps: float = 30.0,
     sequence_name: str = "RapidCut Export",
 ) -> str:
@@ -126,6 +141,22 @@ def build_xml(
         diagnostic_lines.append(f"       Segment {i:03d}: {s['start']:.3f}s to {s['end']:.3f}s (Frames: {to_frames(s['start'])} to {to_frames(s['end'])})")
     diagnostic_lines.append("  -->")
 
+    # Prepare Title Resources
+    title_resources = []
+    if rendered_titles:
+        for i, t in enumerate(rendered_titles):
+            t_path = os.path.abspath(t['path']).replace("\\", "/")
+            t_uri = "file:///" + quote(t_path.lstrip("/"))
+            t_dur = to_fcpxml_time(to_frames(t.get("duration", 3.0)))
+            title_resources.append(
+                f'    <asset id="title_{i}" name="{os.path.basename(t_path)}" src="{t_uri}"'
+                f' format="r_img" duration="{t_dur}" hasVideo="1" hasAudio="0">\n'
+                f'      <media-rep kind="original-media" src="{t_uri}"/>\n'
+                f'    </asset>'
+            )
+
+    img_format_line = f'    <format id="r_img" width="{width}" height="{height}"/>' if rendered_titles else ''
+
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<!DOCTYPE fcpxml>',
@@ -133,10 +164,12 @@ def build_xml(
         "\n".join(diagnostic_lines),
         '  <resources>',
         f'    <format id="r1" frameDuration="{frame_dur}" width="{width}" height="{height}" colorSpace="1-1-1 (Rec. 709)"/>',
+        img_format_line,
         f'    <asset id="r2" name="{base_name}" uid="{uid}" src="{file_uri}"',
         f'           format="r1" duration="{asset_time}" hasVideo="1" hasAudio="1">',
         f'      <media-rep kind="original-media" src="{file_uri}"/>',
         '    </asset>',
+        "\n".join(title_resources),
         '  </resources>',
         '  <library>',
         '    <event name="RapidCut">',
@@ -158,6 +191,30 @@ def build_xml(
             f' start="{to_fcpxml_time(start_f)}"/>'
         )
         timeline_frames += dur_f
+
+    # Add Titles as connected clips on Lane 1
+    # We need to calculate where the title falls relative to the NEW timeline
+    if rendered_titles:
+        for i, t in enumerate(rendered_titles):
+            # Find the offset in the final timeline
+            # (This is simplified; a robust version checks if the startTime is within a kept segment)
+            # For now, we calculate offset by summing durations of preceding segments
+            title_offset_f = 0
+            found = False
+            for seg in keep_segments:
+                if t['startTime'] >= seg['start'] and t['startTime'] < seg['end']:
+                    title_offset_f += to_frames(t['startTime'] - seg['start'])
+                    found = True
+                    break
+                title_offset_f += to_frames(seg['end']) - to_frames(seg['start'])
+            
+            if found:
+                lines.append(
+                    f'            <asset-clip ref="title_{i}" lane="1"'
+                    f' offset="{to_fcpxml_time(title_offset_f)}"'
+                    f' duration="{to_fcpxml_time(to_frames(t.get("duration", 3.0)))}"'
+                    f' start="0s" />'
+                )
 
     lines += [
         '          </spine>',

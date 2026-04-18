@@ -11,11 +11,19 @@ export default function ScriptView() {
     playbackSpeed, 
     setPlaybackSpeed,
     videoDuration,
-    isWordCut
+    isWordCut,
+    addTitle,
+    titles,
+    templates
   } = useStore()
   
   const audioRef = useRef<HTMLAudioElement>(null)
   const activeWordRef = useRef<HTMLSpanElement>(null)
+
+  // State for the title creation popover
+  const [addingTitleAtIndex, setAddingTitleAtIndex] = useState<number | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   
   // Track active word index to prevent jitter and redundant scrolls
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1)
@@ -26,6 +34,13 @@ export default function ScriptView() {
       audioRef.current.playbackRate = playbackSpeed
     }
   }, [playbackSpeed])
+
+  // Initialize template selection when modal opens
+  useEffect(() => {
+    if (addingTitleAtIndex !== null && templates.length > 0 && !selectedTemplateId) {
+      setSelectedTemplateId(templates[0].id)
+    }
+  }, [addingTitleAtIndex, templates])
 
   // Update active word index based on time
   useEffect(() => {
@@ -151,30 +166,61 @@ export default function ScriptView() {
         <div className="max-w-3xl mx-auto space-y-8">
           {paragraphs.map((paragraph, pi) => {
             return (
-              <p key={pi} className="text-gray-400">
+              <p key={pi} className="text-gray-400 group/para relative">
+                {/* Title insertion point at start of paragraph */}
+                <button
+                  onClick={() => {
+                    setAddingTitleAtIndex(words.indexOf(paragraph[0]))
+                    setTitleDraft('')
+                  }}
+                  className="absolute -left-10 top-1 opacity-0 group-hover/para:opacity-100 p-1 text-blue-500 hover:bg-blue-500/10 rounded transition-all"
+                  title="Add title at start of paragraph"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                </button>
+
                 {paragraph.map((word, wi) => {
                   const isActive = currentTime >= word.start && currentTime <= word.end
                   const isCut = isWordCut(words.indexOf(word))
+                  const wordIndex = words.indexOf(word)
+                  const hasTitle = titles.some(t => t.wordIndex === wordIndex)
                   
                   return (
-                    <span
-                      key={wi}
-                      ref={isActive ? activeWordRef : null}
-                      onClick={() => {
-                        if (audioRef.current) {
-                          audioRef.current.currentTime = word.start
-                          setCurrentTime(word.start)
-                          audioRef.current.play().catch(() => {})
-                        }
-                      }}
-                      className={`cursor-pointer transition-colors duration-150 px-0.5 rounded ${isCut ? 'opacity-30 line-through decoration-red-500/50' : ''} ${
-                        isActive
-                          ? 'bg-blue-500/30 text-blue-300'
-                          : 'hover:text-gray-200'
-                      }`}
-                    >
-                      {word.word}{' '}
-                    </span>
+                    <React.Fragment key={wi}>
+                      <span
+                        ref={isActive ? activeWordRef : null}
+                        onClick={() => {
+                          if (audioRef.current) {
+                            audioRef.current.currentTime = word.start
+                            setCurrentTime(word.start)
+                            audioRef.current.play().catch(() => {})
+                          }
+                        }}
+                        className={`cursor-pointer transition-colors duration-150 px-0.5 rounded inline-block group/word relative ${isCut ? 'opacity-30 line-through decoration-red-500/50' : ''} ${
+                          isActive
+                            ? 'bg-blue-500/30 text-blue-300'
+                            : 'hover:text-gray-200'
+                        }`}
+                      >
+                        {word.word}
+                        {hasTitle && (
+                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] bg-blue-600 text-white px-1 rounded-sm font-bold shadow-sm">
+                            T
+                          </span>
+                        )}
+                        {/* Title insertion point after word */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setAddingTitleAtIndex(wordIndex)
+                            setTitleDraft('')
+                          }}
+                          className="absolute -right-1 top-0 bottom-0 w-2 opacity-0 group-hover/word:opacity-100 bg-blue-500/20 hover:bg-blue-500/40 rounded-sm z-10 transition-opacity"
+                          title="Insert title here"
+                        />
+                      </span>
+                      {' '}
+                    </React.Fragment>
                   )
                 })}
               </p>
@@ -182,6 +228,52 @@ export default function ScriptView() {
           })}
         </div>
       </div>
+
+      {/* Simple Inline Title Creator */}
+      {addingTitleAtIndex !== null && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1d27] border border-gray-700 rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-sm font-bold text-gray-200 uppercase tracking-widest">Create New Title</h3>
+            
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Title Text</label>
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+                placeholder="Enter title text..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && titleDraft) {
+                    addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId)
+                    setAddingTitleAtIndex(null)
+                  }
+                }}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Template Style</label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+              >
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setAddingTitleAtIndex(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+              <button 
+                onClick={() => { addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId); setAddingTitleAtIndex(null) }}
+                disabled={!titleDraft}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+              >Create Title</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

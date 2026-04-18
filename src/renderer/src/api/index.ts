@@ -63,14 +63,26 @@ export interface ExportResult {
   xml: string
 }
 
+export interface ExportOptions {
+  titles?: Array<{ text: string; startTime: number; duration: number; templateId?: string }>
+  templates?: object[]
+  resolution?: string
+  savePath?: string
+}
+
 export function exportXml(
   filePath: string,
   keepSegments: Segment[],
   sequenceName: string,
+  options?: ExportOptions,
 ): Promise<ExportResult> {
   return post('/export', {
     file_path: filePath,
     keep_segments: keepSegments,
     sequence_name: sequenceName,
+    titles: options?.titles,
+    templates: options?.templates,
+    resolution: options?.resolution,
+    save_path: options?.savePath,
   })
 }

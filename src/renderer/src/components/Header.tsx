@@ -51,6 +51,12 @@ export default function Header() {
           >
             Full Script
           </button>
+          <button
+            onClick={() => setView('titles')}
+            className={`text-sm font-medium ${view === 'titles' ? 'text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Titles
+          </button>
         </div>
       )}
 

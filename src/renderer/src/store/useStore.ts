@@ -24,9 +24,41 @@ export const DEFAULT_SETTINGS: Settings = {
   postCutPaddingMs: 50,
   minSilenceDurationMs: 300,
   whisperModel: 'base.en',
+  titleResolution: '1080p',
+  defaultTitleDuration: 3.0
 }
 
 const DEFAULT_PRESET_NAME = 'Default'
+
+export type ResolutionKey = '1080p' | '4k' | '720p' | 'vertical'
+
+export interface TitleTemplate {
+  id: string
+  name: string
+  fontPath: string
+  fontSize: number // Base size, can be dynamic
+  color: string
+  alignment: 'left' | 'center' | 'right'
+  // Bounding box as percentages (0-100) to remain resolution independent
+  box: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  aiPrompt: string
+  isDynamic: boolean // If true, font size adjusts to fill the box
+}
+
+export interface TitleInstance {
+  id: string
+  text: string
+  startTime: number
+  duration: number
+  templateId: string
+  // Store word index to help keep the title "attached" to transcript flow
+  wordIndex: number
+}
 
 interface TimeRangeCut {
   start: number
@@ -42,8 +74,8 @@ interface AppState {
   // Mode
   mode: AppMode
   setMode: (mode: AppMode) => void
-  view: 'edit' | 'script'
-  setView: (view: 'edit' | 'script') => void
+  view: 'edit' | 'script' | 'titles'
+  setView: (view: 'edit' | 'script' | 'titles') => void
 
   // File
   filePath: string | null
@@ -92,6 +124,23 @@ interface AppState {
   addFillerWord: (word: string) => void
   removeFillerWord: (word: string) => void
 
+  // Global Title Settings
+  setTitleResolution: (res: ResolutionKey) => void
+
+  // System Fonts
+  availableFonts: Array<{ name: string; path: string }>
+  setAvailableFonts: (fonts: Array<{ name: string; path: string }>) => void
+
+  // Titles & Templates
+  titles: TitleInstance[]
+  templates: TitleTemplate[]
+  addTitle: (wordIndex: number, text: string, templateId: string) => void
+  removeTitle: (id: string) => void
+  createTemplate: (name: string) => void
+  updateTemplate: (id: string, partial: Partial<TitleTemplate>) => void
+  cloneTemplate: (id: string) => void
+  deleteTemplate: (id: string) => void
+
   // Presets
   presets: Record<string, PresetData>
   activePreset: string
@@ -114,6 +163,7 @@ interface AppState {
   // Derived
   getKeepSegments: () => Segment[]
   isWordCut: (index: number) => boolean
+  getCleanTranscript: () => string
 }
 
 function mergeRegions(regions: CutRegion[]): CutRegion[] {
@@ -311,6 +361,75 @@ export const useStore = create<AppState>((set, get) => ({
         presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
       }
     }),
+
+  setTitleResolution: (titleResolution) => set((s) => ({ 
+    settings: { ...s.settings, titleResolution } 
+  })),
+
+  availableFonts: [],
+  setAvailableFonts: (availableFonts) => set({ availableFonts }),
+
+  // ─── Titles & Templates ──────────────────────────────────────────────────────
+
+  titles: [],
+  templates: [
+    {
+      id: 'default-title',
+      name: 'Standard Title',
+      fontPath: '',
+      fontSize: 60,
+      color: '#ffffff',
+      alignment: 'left',
+      box: { x: 5, y: 5, width: 40, height: 20 },
+      isDynamic: true,
+      aiPrompt: 'Please summarize and create titles for the following transcript:'
+    }
+  ],
+
+  addTitle: (wordIndex, text, templateId) => set((s) => {
+    const word = s.words[wordIndex]
+    if (!word) return s
+    const newTitle: TitleInstance = {
+      id: crypto.randomUUID(),
+      text,
+      startTime: word.start,
+      duration: s.settings.defaultTitleDuration || 3.0,
+      templateId,
+      wordIndex
+    }
+    return { titles: [...s.titles, newTitle] }
+  }),
+
+  removeTitle: (id) => set((s) => ({ titles: s.titles.filter(t => t.id !== id) })),
+
+  createTemplate: (name) => set((s) => ({
+    templates: [...s.templates, {
+      id: crypto.randomUUID(),
+      name,
+      fontPath: '',
+      fontSize: 60,
+      color: '#ffffff',
+      alignment: 'left',
+      box: { x: 10, y: 10, width: 30, height: 15 },
+      isDynamic: true,
+      aiPrompt: 'Please summarize and create titles for the following transcript:'
+    }]
+  })),
+
+  updateTemplate: (id, partial) => set((s) => ({
+    templates: s.templates.map(t => t.id === id ? { ...t, ...partial } : t)
+  })),
+
+  cloneTemplate: (id) => set((s) => {
+    const source = s.templates.find(t => t.id === id)
+    if (!source) return s
+    const cloned = { ...source, id: crypto.randomUUID(), name: `${source.name} (Copy)` }
+    return { templates: [...s.templates, cloned] }
+  }),
+
+  deleteTemplate: (id) => set((s) => ({
+    templates: s.templates.filter(t => t.id !== id)
+  })),
 
   // ─── Presets ────────────────────────────────────────────────────────────────
 
@@ -534,4 +653,12 @@ export const useStore = create<AppState>((set, get) => ({
 
     return keepSegments
   },
+
+  getCleanTranscript: () => {
+    const { words, isWordCut } = get()
+    return words
+      .filter((_, i) => !isWordCut(i))
+      .map(w => w.word)
+      .join(' ')
+  }
 }))

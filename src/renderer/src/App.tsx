@@ -9,6 +9,7 @@ import FillerWordManager from './components/FillerWordManager'
 import ExportButton from './components/ExportButton'
 import SetupScreen from './components/SetupScreen'
 import ScriptView from './components/ScriptView'
+import TitleManager from './components/TitleManager'
 
 const DEBOUNCE_MS = 400
 
@@ -264,8 +265,10 @@ export default function App() {
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
               {view === 'edit' ? (
                 <TranscriptEditor />
-              ) : (
+              ) : view === 'script' ? (
                 <ScriptView />
+              ) : (
+                <TitleManager />
               )}
 
               {/* Sticky export bar */}

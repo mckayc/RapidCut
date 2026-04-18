@@ -28,6 +28,8 @@ export interface Settings {
   postCutPaddingMs: number
   minSilenceDurationMs: number
   whisperModel: WhisperModel
+  titleResolution: string
+  defaultTitleDuration: number
 }
 
 export interface PresetData {

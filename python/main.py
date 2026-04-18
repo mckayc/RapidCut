@@ -5,12 +5,14 @@ from typing import List, Optional
 import json
 import os
 import subprocess
+import tempfile
 import sys
 import uvicorn
 
 from transcribe import transcribe_file
 from analyze import analyze
 from export import build_xml
+from render_titles import render_title
 
 _FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
 
@@ -66,6 +68,13 @@ def check_deps():
         results["pydub"] = {"available": True}
     except ImportError as e:
         results["pydub"] = {"available": False, "error": str(e)}
+
+    # pillow (PIL) - Required for Title Rendering
+    try:
+        from PIL import Image  # noqa: F401
+        results["pillow"] = {"available": True}
+    except ImportError as e:
+        results["pillow"] = {"available": False, "error": str(e)}
 
     return results
 
@@ -147,18 +156,62 @@ class Segment(BaseModel):
     end: float
 
 
+class TitleItem(BaseModel):
+    text: str
+    startTime: float
+    duration: float = 3.0
+    templateId: Optional[str] = None
+
+
 class ExportRequest(BaseModel):
     file_path: str
     keep_segments: List[Segment]
     fps: float = 24.0
     sequence_name: str = "RapidCut Export"
+    titles: Optional[List[TitleItem]] = None
+    templates: Optional[List[dict]] = None
+    resolution: Optional[str] = "1080p"
+    save_path: Optional[str] = None
 
 
 @app.post("/export")
 def export_endpoint(req: ExportRequest):
     try:
         segments = [{"start": s.start, "end": s.end} for s in req.keep_segments]
-        xml = build_xml(req.file_path, segments, req.fps, req.sequence_name)
+
+        rendered_titles = None
+        if req.titles and req.templates and len(req.templates) > 0:
+            templates_by_id = {t["id"]: t for t in req.templates if "id" in t}
+            fallback_template = req.templates[0]
+
+            # Place PNGs next to the output FCPXML so FCP can always find them
+            if req.save_path:
+                save_dir = os.path.dirname(os.path.abspath(req.save_path))
+                base_name = os.path.splitext(os.path.basename(req.save_path))[0]
+                titles_dir = os.path.join(save_dir, f"{base_name}_titles")
+            else:
+                titles_dir = tempfile.mkdtemp(prefix="rapidcut_titles_")
+
+            os.makedirs(titles_dir, exist_ok=True)
+            rendered_titles = []
+            for i, t in enumerate(req.titles):
+                template = templates_by_id.get(t.templateId, fallback_template) if t.templateId else fallback_template
+                out_path = os.path.join(titles_dir, f"title_{i}.png")
+                render_title(t.text, template, out_path, req.resolution or "1080p")
+                rendered_titles.append({
+                    "path": out_path,
+                    "startTime": t.startTime,
+                    "duration": t.duration,
+                    "text": t.text,
+                })
+
+        xml = build_xml(
+            req.file_path,
+            segments,
+            rendered_titles=rendered_titles,
+            fps=req.fps,
+            sequence_name=req.sequence_name,
+        )
         return {"xml": xml}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useStore } from '../store/useStore'
 import type { DepInfo, DepsStatus } from '../types'
 
 type InstallState = 'idle' | 'installing' | 'success' | 'error'
@@ -95,6 +96,7 @@ interface Props {
 }
 
 export default function SetupScreen({ onReady }: Props) {
+  const { setAvailableFonts } = useStore()
   const [deps, setDeps] = useState<DepsStatus | null>(null)
   const [checking, setChecking] = useState(true)
 
@@ -113,6 +115,11 @@ export default function SetupScreen({ onReady }: Props) {
     try {
       const result = await window.electronAPI.checkDeps()
       setDeps(result)
+      
+      // Load system fonts once we know environment is ready
+      const fonts = await window.electronAPI.getSystemFonts()
+      setAvailableFonts(fonts)
+
       if (autoLaunch && result.python.available && result.ffmpeg.available) {
         // All deps present — launch immediately without user interaction
         setServerState('installing')
@@ -163,9 +170,8 @@ export default function SetupScreen({ onReady }: Props) {
     setServerError('')
     const result = await window.electronAPI.startServer()
     if (result.success) {
-      // Optional secondary check: verify whisper/pydub loaded in the Python process.
-      // Only block on known package keys — ignore FastAPI error responses ({"detail":...}).
-      const KNOWN_PACKAGES = ['whisper', 'pydub']
+      // Verify required Python packages are present
+      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow']
       try {
         const res = await fetch('http://127.0.0.1:8765/setup/check')
         if (res.ok) {
@@ -174,11 +180,10 @@ export default function SetupScreen({ onReady }: Props) {
             (k) => k in pyCheck && pyCheck[k] && !pyCheck[k].available,
           )
           if (missing.length > 0) {
-            setServerState('error')
-            setServerError(
-              `Missing Python packages: ${missing.join(', ')}. Click "Install Python packages" above.`,
-            )
-            return
+            // Automatically try to install missing packages
+            await handleInstallPip()
+            // Try to launch again after install
+            return handleLaunch()
           }
         }
       } catch {

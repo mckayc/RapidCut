@@ -9,10 +9,13 @@ export default function ExportButton() {
     getKeepSegments,
     setStatus,
     status,
-    manualToggles,
-    manualTimeCuts
+    templates,
+    titles,
+    settings,
+    getCleanTranscript
   } = useStore()
   const [error, setError] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState(false)
   const isExporting = status === 'exporting'
 
   async function handleExport() {
@@ -23,18 +26,31 @@ export default function ExportButton() {
       return
     }
 
-    setStatus('exporting', 'Generating FCPXML…')
+    setStatus('exporting', 'Choosing save location…')
     setError('')
 
     try {
       const sequenceName = fileName.replace(/\.[^.]+$/, '') + ' — RapidCut'
-      const { xml } = await exportXml(filePath, keepSegments, sequenceName)
-
       const sourceDir = filePath.replace(/[/\\][^/\\]+$/, '')
       const defaultName = sourceDir + '/' + fileName.replace(/\.[^.]+$/, '') + '_rapidcut.fcpxml'
-      const savePath = await window.electronAPI.showSaveDialog(defaultName)
 
-      if (savePath) {
+      // Ask where to save first so the server can place PNGs next to the output file
+      const savePath = await window.electronAPI.showSaveDialog(defaultName)
+      if (!savePath) {
+        setStatus('ready', '')
+        return
+      }
+
+      setStatus('exporting', 'Generating FCPXML…')
+
+      const { xml } = await exportXml(
+        filePath,
+        keepSegments,
+        sequenceName,
+        { titles, templates, resolution: settings.titleResolution, savePath }
+      )
+
+      if (xml) {
         await window.electronAPI.writeFile(savePath, xml)
         setStatus('ready', 'Export saved successfully')
       } else {
@@ -45,6 +61,15 @@ export default function ExportButton() {
       setError(msg)
       setStatus('ready', '')
     }
+  }
+
+  const handleCopyForAI = () => {
+    const transcript = getCleanTranscript()
+    const activePrompt = templates[0]?.aiPrompt || ''
+    const fullText = `${activePrompt}\n\n${transcript}`
+    navigator.clipboard.writeText(fullText)
+    setCopyFeedback(true)
+    setTimeout(() => setCopyFeedback(false), 2000)
   }
 
   const keepSegments = getKeepSegments()
@@ -66,6 +91,13 @@ export default function ExportButton() {
             {keepSegments.length} segment{keepSegments.length !== 1 ? 's' : ''} · {durationLabel}
           </span>
         )}
+        <button
+          onClick={handleCopyForAI}
+          disabled={isExporting}
+          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 border border-gray-700 h-[38px]"
+        >
+          {copyFeedback ? '✓ Copied!' : '📋 Copy for AI'}
+        </button>
         <button
           onClick={handleExport}
           disabled={isExporting || !filePath}
