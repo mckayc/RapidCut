@@ -96,19 +96,41 @@ def build_xml(
     else:
         fps_num, fps_den = _fps_rational(round(fps * 1000), 1000)
 
+    def to_frames(seconds: float) -> int:
+        """Convert seconds to an absolute integer frame count."""
+        return round(seconds * fps_num / fps_den)
+
+    def to_fcpxml_time(frame_count: int) -> str:
+        """Convert an integer frame count to a rational string (e.g., '1001/30000s')."""
+        f = Fraction(frame_count * fps_den, fps_num)
+        return f"{f.numerator}s" if f.denominator == 1 else f"{f.numerator}/{f.denominator}s"
+
     frame_dur = _frame_duration(fps_num, fps_den)
 
     # Asset duration must be the full source file length, not just kept segments
     asset_dur = src_dur or max((s["end"] for s in keep_segments), default=0.0)
-    asset_time = _t(asset_dur, fps_num, fps_den)
+    asset_time = to_fcpxml_time(to_frames(asset_dur))
 
-    timeline_seconds = sum(s["end"] - s["start"] for s in keep_segments)
-    seq_time = _t(timeline_seconds, fps_num, fps_den)
+    # Calculate total sequence duration in frames to avoid floating point drift
+    total_seq_frames = sum(to_frames(s["end"]) - to_frames(s["start"]) for s in keep_segments)
+    seq_time = to_fcpxml_time(total_seq_frames)
+
+    # Create a diagnostic log to embed in the XML for troubleshooting
+    diagnostic_lines = [
+        "  <!-- RAPIDCUT DIAGNOSTIC LOG",
+        f"       Source File: {file_path}",
+        f"       Calculated FPS: {fps_num}/{fps_den} ({float(fps_num/fps_den):.3f})",
+        f"       Total Keep Segments: {len(keep_segments)}",
+    ]
+    for i, s in enumerate(keep_segments):
+        diagnostic_lines.append(f"       Segment {i:03d}: {s['start']:.3f}s to {s['end']:.3f}s (Frames: {to_frames(s['start'])} to {to_frames(s['end'])})")
+    diagnostic_lines.append("  -->")
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<!DOCTYPE fcpxml>',
         '<fcpxml version="1.11">',
+        "\n".join(diagnostic_lines),
         '  <resources>',
         f'    <format id="r1" frameDuration="{frame_dur}" width="{width}" height="{height}" colorSpace="1-1-1 (Rec. 709)"/>',
         f'    <asset id="r2" name="{base_name}" uid="{uid}" src="{file_uri}"',
@@ -123,22 +145,17 @@ def build_xml(
         '          <spine>',
     ]
 
-    def frames(seconds: float) -> int:
-        return round(seconds * fps_num / fps_den)
-
-    def ft(frame_count: int) -> str:
-        f = Fraction(frame_count * fps_den, fps_num)
-        return f"{f.numerator}s" if f.denominator == 1 else f"{f.numerator}/{f.denominator}s"
-
     timeline_frames = 0
     for seg in keep_segments:
-        start_f = frames(seg["start"])
-        dur_f = frames(seg["end"]) - start_f
+        start_f = to_frames(seg["start"])
+        dur_f = to_frames(seg["end"]) - start_f
+        if dur_f <= 0:
+            continue
         lines.append(
             f'            <asset-clip ref="r2"'
-            f' offset="{ft(timeline_frames)}"'
-            f' duration="{ft(dur_f)}"'
-            f' start="{ft(start_f)}"/>'
+            f' offset="{to_fcpxml_time(timeline_frames)}"'
+            f' duration="{to_fcpxml_time(dur_f)}"'
+            f' start="{to_fcpxml_time(start_f)}"/>'
         )
         timeline_frames += dur_f
 

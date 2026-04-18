@@ -147,7 +147,8 @@ def _merge_regions(regions: List[Dict]) -> List[Dict]:
     sorted_r = sorted(regions, key=lambda r: r["start"])
     merged = [dict(sorted_r[0])]
     for r in sorted_r[1:]:
-        if r["start"] <= merged[-1]["end"]:
+        # Use a small epsilon (10ms) to bridge tiny gaps that would leave slivers
+        if r["start"] <= merged[-1]["end"] + 0.01:
             merged[-1]["end"] = max(merged[-1]["end"], r["end"])
         else:
             merged.append(dict(r))

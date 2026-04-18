@@ -430,7 +430,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getKeepSegments: () => {
-    const { words, cutRegions, manualToggles, manualTimeCuts, videoDuration } = get()
+    const { words, cutRegions, manualToggles, manualTimeCuts, videoDuration, isWordCut } = get()
     if (!videoDuration) return []
 
     let effectiveCuts: CutRegion[] = [...cutRegions]
@@ -445,9 +445,17 @@ export const useStore = create<AppState>((set, get) => ({
       const word = words[parseInt(idxStr)]
       if (!word) return
       if (toggle === 'keep') {
-        effectiveCuts = effectiveCuts.filter(
-          (r) => !(r.start < word.end && r.end > word.start),
-        )
+        // Punch a hole in any existing cuts to keep this specific word
+        const nextCuts: CutRegion[] = []
+        for (const r of effectiveCuts) {
+          if (r.start < word.end && r.end > word.start) {
+            if (r.start < word.start) nextCuts.push({ ...r, end: word.start })
+            if (r.end > word.end) nextCuts.push({ ...r, start: word.end })
+          } else {
+            nextCuts.push(r)
+          }
+        }
+        effectiveCuts = nextCuts
       } else if (toggle === 'cut') {
         effectiveCuts.push({ start: word.start, end: word.end, reason: 'manual' })
       }
@@ -455,13 +463,56 @@ export const useStore = create<AppState>((set, get) => ({
 
     effectiveCuts = mergeRegions(effectiveCuts)
 
+    // Smart Merge: Bridge gaps between cut regions if they contain no speech words that are intended to be kept.
+    // This solves the "leftover clips" issue where gaps between manual cuts are kept despite the content being removed.
+    if (words.length > 0 && effectiveCuts.length > 0) {
+      // Pre-calculate word status for performance to avoid UI lag.
+      const isActuallyCut = words.map((_, i) => isWordCut(i))
+      const smartMerged: CutRegion[] = []
+      
+      let current = { ...effectiveCuts[0] }
+      
+      // If no words are kept before the first cut, start the first cut at the very beginning of the file.
+      const hasKeepWordBefore = words.some((w, idx) => w.end <= current.start && !isActuallyCut[idx])
+      if (!hasKeepWordBefore) current.start = 0
+
+      for (let i = 1; i < effectiveCuts.length; i++) {
+        const next = effectiveCuts[i]
+        const gapStart = current.end
+        const gapEnd = next.start
+        
+        // A gap is bridged if it contains no words that the user wants to keep.
+        const hasKeepWordInGap = words.some((w, idx) => 
+          !isActuallyCut[idx] && w.start < gapEnd && w.end > gapStart
+        )
+        
+        if (!hasKeepWordInGap) {
+          current.end = next.end
+        } else {
+          smartMerged.push(current)
+          current = { ...next }
+        }
+      }
+      
+      // If no words are kept after the last cut, extend the last cut to the very end of the file.
+      const hasKeepWordAfter = words.some((w, idx) => w.start >= current.end && !isActuallyCut[idx])
+      if (!hasKeepWordAfter) current.end = videoDuration
+
+      smartMerged.push(current)
+      effectiveCuts = smartMerged
+    }
+
     const keepSegments: Segment[] = []
+    const MIN_KEEP_DURATION = 0.05 // Ignore kept segments shorter than 50ms (prevents sub-frame artifacts)
     let pos = 0
     for (const cut of effectiveCuts) {
-      if (cut.start > pos + 0.01) keepSegments.push({ start: pos, end: cut.start })
+      if (cut.start > pos + MIN_KEEP_DURATION) keepSegments.push({ start: pos, end: cut.start })
       pos = cut.end
     }
-    if (videoDuration - pos > 0.01) keepSegments.push({ start: pos, end: videoDuration })
+    if (videoDuration - pos > MIN_KEEP_DURATION) keepSegments.push({ start: pos, end: videoDuration })
+
+    console.log('[RapidCut] Segments to KEEP:')
+    console.table(keepSegments)
 
     return keepSegments
   },
