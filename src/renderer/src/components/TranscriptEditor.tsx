@@ -113,7 +113,7 @@ function WordChip({
 
 // ─── Sentence row ─────────────────────────────────────────────────────────────
 
-function SentenceRow({
+const SentenceRow = React.memo(({
   words,
   indices,
   repeatSpans,
@@ -121,7 +121,7 @@ function SentenceRow({
   words: Word[]
   indices: number[]
   repeatSpans: Set<number>
-}) {
+}) => {
   const [expanded, setExpanded] = useState(false)
   const { isWordCut, addTimeCut, removeTimeCutsOverlapping } = useStore()
 
@@ -130,7 +130,7 @@ function SentenceRow({
   const allCut = cutCount === total
   const noneCut = cutCount === 0
   const hasRepeat = indices.some((i) => repeatSpans.has(i))
-  const text = words.map((w) => w.word).join(' ')
+  const text = useMemo(() => words.map((w) => w.word).join(' '), [words])
 
   const sentenceStart = words[0].start
   const sentenceEnd = words[words.length - 1].end
@@ -211,7 +211,7 @@ function SentenceRow({
       )}
     </div>
   )
-}
+})
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -223,6 +223,17 @@ export default function TranscriptEditor() {
   const totalCutSecs = videoDuration - totalKeptSecs
 
   const sentences = useMemo(() => groupIntoSentences(words), [words])
+  
+  // Efficiently calculate indices once per word list change (O(N) instead of O(N^2))
+  const sentenceData = useMemo(() => {
+    let currentOffset = 0
+    return sentences.map((s) => {
+      const indices = s.map((_, i) => currentOffset + i)
+      currentOffset += s.length
+      return { words: s, indices }
+    })
+  }, [sentences])
+
   const repeatSpans = useMemo(() => findRepeatSpans(words), [words])
 
   // ─── Drag-to-select ────────────────────────────────────────────────────────
@@ -319,14 +330,12 @@ export default function TranscriptEditor() {
 
         {/* Sentences */}
         <div className="flex-1 overflow-y-auto">
-          {sentences.map((sentenceWords, si) => {
-            const firstWordIdx = sentences.slice(0, si).reduce((acc, s) => acc + s.length, 0)
-            const indices = sentenceWords.map((_, wi) => firstWordIdx + wi)
+          {sentenceData.map((data, si) => {
             return (
               <SentenceRow
                 key={si}
-                words={sentenceWords}
-                indices={indices}
+                words={data.words}
+                indices={data.indices}
                 repeatSpans={repeatSpans}
               />
             )
