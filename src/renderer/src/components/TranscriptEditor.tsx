@@ -123,7 +123,13 @@ const SentenceRow = React.memo(({
   repeatSpans: Set<number>
 }) => {
   const [expanded, setExpanded] = useState(false)
-  const { isWordCut, addTimeCut, removeTimeCutsOverlapping } = useStore()
+  const {
+    isWordCut,
+    addTimeCut,
+    removeTimeCutsOverlapping,
+    manualToggles,
+    manualTimeCuts
+  } = useStore()
 
   const cutCount = indices.filter((i) => isWordCut(i)).length
   const total = indices.length
@@ -216,9 +222,20 @@ const SentenceRow = React.memo(({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function TranscriptEditor() {
-  const { words, cutRegions, getKeepSegments, videoDuration, settings } = useStore()
+  const {
+    words,
+    cutRegions,
+    getKeepSegments,
+    videoDuration,
+    settings,
+    manualToggles,
+    manualTimeCuts
+  } = useStore()
 
-  const keepSegments = useMemo(() => getKeepSegments(), [words, cutRegions])
+  const keepSegments = useMemo(
+    () => getKeepSegments(),
+    [words, cutRegions, manualToggles, manualTimeCuts, videoDuration]
+  )
   const totalKeptSecs = keepSegments.reduce((acc, s) => acc + (s.end - s.start), 0)
   const totalCutSecs = videoDuration - totalKeptSecs
 

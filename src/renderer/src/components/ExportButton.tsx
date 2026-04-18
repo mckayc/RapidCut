@@ -3,7 +3,15 @@ import { useStore } from '../store/useStore'
 import { exportXml } from '../api'
 
 export default function ExportButton() {
-  const { filePath, fileName, getKeepSegments, setStatus, status } = useStore()
+  const {
+    filePath,
+    fileName,
+    getKeepSegments,
+    setStatus,
+    status,
+    manualToggles,
+    manualTimeCuts
+  } = useStore()
   const [error, setError] = useState('')
   const isExporting = status === 'exporting'
 
