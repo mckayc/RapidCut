@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import type { Word } from '../types'
 
 export default function ScriptView() {
   const { 
@@ -20,6 +21,24 @@ export default function ScriptView() {
     }
   }, [playbackSpeed])
 
+  // Heuristic: Group words into paragraphs based on pauses > 1.5s or sentence breaks
+  const paragraphs = useMemo(() => {
+    const p: Word[][] = []
+    let current: Word[] = []
+    words.forEach((w, i) => {
+      current.push(w)
+      const next = words[i + 1]
+      const isLongPause = next && next.start - w.end > 1.5
+      const isSentenceEnd = /[.?!]$/.test(w.word.trim()) && next && next.start - w.end > 0.6
+      if (isLongPause || isSentenceEnd) {
+        p.push(current)
+        current = []
+      }
+    })
+    if (current.length > 0) p.push(current)
+    return p
+  }, [words])
+
   // If no words exist (e.g. in Audio Level Mode), show a placeholder
   if (words.length === 0) {
     return (
@@ -39,8 +58,10 @@ export default function ScriptView() {
         {audioPath ? (
           <audio
             ref={audioRef}
+            key={audioPath}
             src={`media://${audioPath.replace(/\\/g, '/')}`}
             controls
+            preload="auto"
             onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             className="h-8 flex-1"
           />
@@ -69,24 +90,33 @@ export default function ScriptView() {
       </div>
 
       {/* Script Content */}
-      <div className="flex-1 overflow-y-auto p-12 leading-loose text-lg">
-        <div className="max-w-3xl mx-auto">
-          {words.map((word, i) => {
-            const isActive = currentTime >= word.start && currentTime <= word.end
+      <div className="flex-1 overflow-y-auto p-12 leading-relaxed text-lg">
+        <div className="max-w-3xl mx-auto space-y-8">
+          {paragraphs.map((paragraph, pi) => {
             return (
-              <span
-                key={i}
-                onClick={() => {
-                  if (audioRef.current) audioRef.current.currentTime = word.start
-                }}
-                className={`cursor-pointer transition-colors duration-150 px-0.5 rounded ${
-                  isActive 
-                    ? 'bg-blue-500/30 text-blue-300 font-medium' 
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                {word.word}{' '}
-              </span>
+              <p key={pi} className="text-gray-400">
+                {paragraph.map((word, wi) => {
+                  const isActive = currentTime >= word.start && currentTime <= word.end
+                  return (
+                    <span
+                      key={wi}
+                      onClick={() => {
+                        if (audioRef.current) {
+                          audioRef.current.currentTime = word.start
+                          audioRef.current.play()
+                        }
+                      }}
+                      className={`cursor-pointer transition-colors duration-150 px-0.5 rounded ${
+                        isActive
+                          ? 'bg-blue-500/30 text-blue-300 font-medium'
+                          : 'hover:text-gray-200'
+                      }`}
+                    >
+                      {word.word}{' '}
+                    </span>
+                  )
+                })}
+              </p>
             )
           })}
         </div>

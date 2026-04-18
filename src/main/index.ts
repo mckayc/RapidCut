@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from 'electron'
 import { join, delimiter } from 'path'
 import { spawn, exec, ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
@@ -312,8 +312,11 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   protocol.handle('media', (request) => {
-    const filePath = decodeURIComponent(request.url.slice('media://'.length))
-    return net.fetch(pathToFileURL(filePath).toString())
+    // Safely extract the path, handling potential double-slashes from URL joining
+    const rawPath = request.url.replace(/^media:\/\/+/, '')
+    const decodedPath = decodeURIComponent(rawPath)
+    const fileUrl = pathToFileURL(decodedPath).toString()
+    return net.fetch(fileUrl)
   })
 
   createWindow()
