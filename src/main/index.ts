@@ -128,7 +128,9 @@ async function checkFfmpeg(): Promise<{ available: boolean; version?: string }> 
 // ─── Dependency installation ──────────────────────────────────────────────
 
 async function installPipDeps(): Promise<{ success: boolean; output: string }> {
-  const reqPath = join(__dirname, '../../requirements.txt')
+  const reqPath = app.isPackaged
+    ? join(process.resourcesPath, 'requirements.txt')
+    : join(__dirname, '../../requirements.txt')
   try {
     const { stdout, stderr } = await execAsync(
       `${PIP_BIN} install -r "${reqPath}"`,
@@ -237,7 +239,9 @@ async function resolveFfmpegExe(): Promise<string> {
 }
 
 async function spawnPythonServer(): Promise<void> {
-  const scriptPath = join(__dirname, '../../python/main.py')
+  const scriptPath = app.isPackaged
+    ? join(process.resourcesPath, 'python/main.py')
+    : join(__dirname, '../../python/main.py')
   const ffmpegExe = await resolveFfmpegExe()
   console.log(`[Main] Using ffmpeg: ${ffmpegExe}`)
   pythonProcess = spawn(PYTHON_BIN, [scriptPath], {

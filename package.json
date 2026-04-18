@@ -2,12 +2,14 @@
   "name": "rapidcut",
   "version": "0.1.0",
   "description": "AI-powered video editor for removing silence and filler words",
+  "author": "McKay <mckayjunk@gmail.com>",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "electron-vite build && electron-builder"
+    "package": "electron-vite build && electron-builder",
+    "dist": "npm run package"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -35,8 +37,11 @@
       "output": "dist"
     },
     "files": [
-      "out/**/*",
-      "python/**/*"
+      "out/**/*"
+    ],
+    "extraResources": [
+      "python/**/*",
+      "requirements.txt"
     ],
     "mac": {
       "category": "public.app-category.video"
