@@ -194,11 +194,13 @@ def export_endpoint(req: ExportRequest):
             templates_by_id = {t["id"]: t for t in req.templates if "id" in t}
             fallback_template = req.templates[0]
 
-            # Place PNGs in the same directory as the output FCPXML (easy to find in Resolve/FCP)
+            TITLES_FOLDER = "Title PNGs"
             if req.save_path:
-                titles_dir = os.path.dirname(os.path.abspath(req.save_path))
+                save_dir = os.path.dirname(os.path.abspath(req.save_path))
+                titles_dir = os.path.join(save_dir, TITLES_FOLDER)
             else:
                 titles_dir = tempfile.mkdtemp(prefix="rapidcut_titles_")
+                TITLES_FOLDER = None  # no relative path available without a save location
 
             os.makedirs(titles_dir, exist_ok=True)
             rendered_titles = []
@@ -209,6 +211,7 @@ def export_endpoint(req: ExportRequest):
                 render_title(t.text, template, out_path, req.resolution or "1080p")
                 rendered_titles.append({
                     "path": out_path,
+                    "rel_path": f"{TITLES_FOLDER}/{filename}" if TITLES_FOLDER else None,
                     "startTime": t.startTime,
                     "duration": t.duration,
                     "text": t.text,

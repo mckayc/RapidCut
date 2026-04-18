@@ -145,11 +145,13 @@ def build_xml(
     title_resources = []
     if rendered_titles:
         for i, t in enumerate(rendered_titles):
-            t_path = os.path.abspath(t['path']).replace("\\", "/")
-            t_uri = "file:///" + quote(t_path.lstrip("/"))
+            t_abs = os.path.abspath(t['path']).replace("\\", "/")
+            # Prefer relative path so Resolve/FCP resolve it from the FCPXML's folder
+            rel = t.get('rel_path')
+            t_uri = quote(rel.replace("\\", "/"), safe="/") if rel else "file:///" + quote(t_abs.lstrip("/"))
             t_dur = to_fcpxml_time(to_frames(t.get("duration", 3.0)))
             title_resources.append(
-                f'    <asset id="title_{i}" name="{os.path.basename(t_path)}" src="{t_uri}"'
+                f'    <asset id="title_{i}" name="{os.path.basename(t_abs)}" src="{t_uri}"'
                 f' format="r_img" duration="{t_dur}" hasVideo="1" hasAudio="0">\n'
                 f'      <media-rep kind="original-media" src="{t_uri}"/>\n'
                 f'    </asset>'

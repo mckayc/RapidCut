@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { useStore } from '../store/useStore'
+import type { TitleInstance } from '../store/useStore'
 import type { Word } from '../types'
 
 export default function ScriptView() {
@@ -13,6 +14,8 @@ export default function ScriptView() {
     videoDuration,
     isWordCut,
     addTitle,
+    updateTitle,
+    removeTitle,
     titles,
     templates,
     settings,
@@ -26,6 +29,11 @@ export default function ScriptView() {
   const [titleDraft, setTitleDraft] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [titleDuration, setTitleDuration] = useState(settings.defaultTitleDuration ?? 3.0)
+
+  const [editingTitle, setEditingTitle] = useState<TitleInstance | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editDuration, setEditDuration] = useState(3.0)
+  const [editTemplateId, setEditTemplateId] = useState('')
   
   // Track active word index to prevent jitter and redundant scrolls
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1)
@@ -207,9 +215,20 @@ export default function ScriptView() {
                       >
                         {word.word}
                         {hasTitle && (
-                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] bg-blue-600 text-white px-1 rounded-sm font-bold shadow-sm">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const t = titles.find(t => t.wordIndex === wordIndex)!
+                              setEditingTitle(t)
+                              setEditDraft(t.text)
+                              setEditDuration(t.duration)
+                              setEditTemplateId(t.templateId)
+                            }}
+                            className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] bg-blue-600 hover:bg-blue-400 text-white px-1 rounded-sm font-bold shadow-sm transition-colors"
+                            title="Edit title"
+                          >
                             T
-                          </span>
+                          </button>
                         )}
                         {/* Title insertion point after word */}
                         <button
@@ -285,6 +304,70 @@ export default function ScriptView() {
                 disabled={!titleDraft}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
               >Create Title</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Title Modal */}
+      {editingTitle && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1d27] border border-gray-700 rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-sm font-bold text-gray-200 uppercase tracking-widest">Edit Title</h3>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Title Text</label>
+              <input
+                autoFocus
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Template Style</label>
+              <select
+                value={editTemplateId}
+                onChange={(e) => setEditTemplateId(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+              >
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Duration (seconds)</label>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={editDuration}
+                onChange={(e) => setEditDuration(Math.max(0.5, Number(e.target.value)))}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => { removeTitle(editingTitle.id); setEditingTitle(null) }}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors"
+              >
+                Delete
+              </button>
+              <div className="flex gap-3">
+                <button onClick={() => setEditingTitle(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+                <button
+                  onClick={() => {
+                    updateTitle(editingTitle.id, { text: editDraft, duration: editDuration, templateId: editTemplateId })
+                    setEditingTitle(null)
+                  }}
+                  disabled={!editDraft}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>

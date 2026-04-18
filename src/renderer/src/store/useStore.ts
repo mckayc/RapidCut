@@ -36,10 +36,9 @@ export interface TitleTemplate {
   id: string
   name: string
   fontPath: string
-  fontSize: number // Base size, can be dynamic
+  fontSize: number
   color: string
   alignment: 'left' | 'center' | 'right'
-  // Bounding box as percentages (0-100) to remain resolution independent
   box: {
     x: number
     y: number
@@ -47,7 +46,12 @@ export interface TitleTemplate {
     height: number
   }
   aiPrompt: string
-  isDynamic: boolean // If true, font size adjusts to fill the box
+  isDynamic: boolean
+  shadowEnabled: boolean
+  shadowColor: string
+  shadowBlur: number
+  shadowOffsetX: number
+  shadowOffsetY: number
 }
 
 export interface TitleInstance {
@@ -136,6 +140,7 @@ interface AppState {
   templates: TitleTemplate[]
   addTitle: (wordIndex: number, text: string, templateId: string, duration?: number) => void
   removeTitle: (id: string) => void
+  updateTitle: (id: string, partial: Partial<Pick<TitleInstance, 'text' | 'duration' | 'templateId'>>) => void
   createTemplate: (name: string) => void
   updateTemplate: (id: string, partial: Partial<TitleTemplate>) => void
   cloneTemplate: (id: string) => void
@@ -382,7 +387,12 @@ export const useStore = create<AppState>((set, get) => ({
       alignment: 'left',
       box: { x: 5, y: 5, width: 40, height: 20 },
       isDynamic: true,
-      aiPrompt: 'Please summarize and create titles for the following transcript:'
+      aiPrompt: 'Please summarize and create titles for the following transcript:',
+      shadowEnabled: false,
+      shadowColor: '#000000',
+      shadowBlur: 4,
+      shadowOffsetX: 3,
+      shadowOffsetY: 3,
     }
   ],
 
@@ -402,6 +412,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeTitle: (id) => set((s) => ({ titles: s.titles.filter(t => t.id !== id) })),
 
+  updateTitle: (id, partial) => set((s) => ({
+    titles: s.titles.map(t => t.id === id ? { ...t, ...partial } : t)
+  })),
+
   createTemplate: (name) => set((s) => ({
     templates: [...s.templates, {
       id: crypto.randomUUID(),
@@ -412,7 +426,12 @@ export const useStore = create<AppState>((set, get) => ({
       alignment: 'left',
       box: { x: 10, y: 10, width: 30, height: 15 },
       isDynamic: true,
-      aiPrompt: 'Please summarize and create titles for the following transcript:'
+      aiPrompt: 'Please summarize and create titles for the following transcript:',
+      shadowEnabled: false,
+      shadowColor: '#000000',
+      shadowBlur: 4,
+      shadowOffsetX: 3,
+      shadowOffsetY: 3,
     }]
   })),
 

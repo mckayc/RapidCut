@@ -133,7 +133,7 @@ export default function TitleManager() {
                 >
                   <div className="p-2 h-full flex flex-col pointer-events-none">
                     <span
-                      className="text-white font-bold break-words overflow-hidden"
+                      className="font-bold break-words overflow-hidden"
                       style={{
                         fontSize: selectedTemplate.isDynamic
                           ? `${Math.max(8, (selectedTemplate.box.height / 100) * canvasHeight * 0.5)}px`
@@ -141,6 +141,12 @@ export default function TitleManager() {
                         textAlign: selectedTemplate.alignment,
                         color: selectedTemplate.color,
                         lineHeight: 1.2,
+                        fontFamily: selectedTemplate.fontPath
+                          ? `"${availableFonts.find(f => f.path === selectedTemplate.fontPath)?.name ?? 'sans-serif'}"`
+                          : 'sans-serif',
+                        textShadow: selectedTemplate.shadowEnabled
+                          ? `${selectedTemplate.shadowOffsetX}px ${selectedTemplate.shadowOffsetY}px ${selectedTemplate.shadowBlur}px ${selectedTemplate.shadowColor}`
+                          : undefined,
                       }}
                     >
                       Demo Title Text
@@ -194,6 +200,38 @@ export default function TitleManager() {
                       <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
                     </select>
                   </div>
+                </div>
+                {/* Drop Shadow */}
+                <div className="space-y-3 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedTemplate.shadowEnabled}
+                      onChange={e => updateTemplate(selectedTemplate.id, { shadowEnabled: e.target.checked })}
+                      className="rounded border-gray-700 bg-gray-800 text-blue-600"
+                    />
+                    <span className="text-xs font-medium text-gray-300">Drop Shadow</span>
+                  </label>
+                  {selectedTemplate.shadowEnabled && (
+                    <div className="grid grid-cols-2 gap-3 pl-5">
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Shadow Color</label>
+                        <input type="color" value={selectedTemplate.shadowColor} onChange={e => updateTemplate(selectedTemplate.id, { shadowColor: e.target.value })} className="w-full h-8 bg-gray-800 border border-gray-700 rounded p-1 cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Blur</label>
+                        <input type="number" min={0} max={30} value={selectedTemplate.shadowBlur} onChange={e => updateTemplate(selectedTemplate.id, { shadowBlur: Number(e.target.value) })} className="w-full bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-gray-200" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Offset X</label>
+                        <input type="number" value={selectedTemplate.shadowOffsetX} onChange={e => updateTemplate(selectedTemplate.id, { shadowOffsetX: Number(e.target.value) })} className="w-full bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-gray-200" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Offset Y</label>
+                        <input type="number" value={selectedTemplate.shadowOffsetY} onChange={e => updateTemplate(selectedTemplate.id, { shadowOffsetY: Number(e.target.value) })} className="w-full bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-gray-200" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -1,5 +1,5 @@
 import os
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 RESOLUTIONS = {
     "1080p": (1920, 1080),
@@ -82,6 +82,27 @@ def render_title(text, template, output_path, resolution_key="1080p"):
 
     color = template.get("color", "#ffffff").lstrip('#')
     rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+
+    # Drop shadow — rendered on a separate layer so blur doesn't bleed onto text
+    if template.get("shadowEnabled"):
+        shadow_hex = template.get("shadowColor", "#000000").lstrip('#')
+        shadow_rgb = tuple(int(shadow_hex[i:i+2], 16) for i in (0, 2, 4))
+        sx = int(template.get("shadowOffsetX", 3))
+        sy = int(template.get("shadowOffsetY", 3))
+        blur = max(0, int(template.get("shadowBlur", 4)))
+        shadow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow_layer)
+        shadow_draw.multiline_text(
+            (target_x + sx, target_y + sy),
+            wrapped,
+            font=font,
+            fill=shadow_rgb + (200,),
+            align=align,
+        )
+        if blur > 0:
+            shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(blur))
+        img = Image.alpha_composite(img, shadow_layer)
+        draw = ImageDraw.Draw(img)
 
     draw.multiline_text(
         (target_x, target_y),
