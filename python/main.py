@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+import json
+import os
 import subprocess
 import sys
 import uvicorn
@@ -9,6 +11,17 @@ import uvicorn
 from transcribe import transcribe_file
 from analyze import analyze
 from export import build_xml
+
+_FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
+
+
+def _ffprobe_path() -> str:
+    if _FFMPEG and _FFMPEG != "ffmpeg":
+        ext = os.path.splitext(_FFMPEG)[1]
+        probe = os.path.join(os.path.dirname(_FFMPEG), "ffprobe" + ext)
+        if os.path.exists(probe):
+            return probe
+    return "ffprobe"
 
 app = FastAPI(title="RapidCut API")
 
@@ -76,6 +89,30 @@ def install_pip_deps():
         }
     except Exception as e:
         return {"success": False, "output": str(e)}
+
+
+class ProbeRequest(BaseModel):
+    file_path: str
+
+
+@app.post("/probe")
+def probe_endpoint(req: ProbeRequest):
+    """Return basic metadata (duration) for a media file via ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                _ffprobe_path(), "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "json",
+                req.file_path,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        data = json.loads(result.stdout)
+        duration = float(data["format"]["duration"])
+        return {"duration": duration}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class TranscribeRequest(BaseModel):

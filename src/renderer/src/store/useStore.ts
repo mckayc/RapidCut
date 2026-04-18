@@ -4,27 +4,29 @@ import type {
   CutRegion,
   Segment,
   Settings,
+  PresetData,
   AppStatus,
   AppMode,
   ManualToggle,
 } from '../types'
 
-const DEFAULT_FILLER_WORDS = [
-  'um', 'uh', 'like', 'you know', 'so', 'basically',
+export const DEFAULT_FILLER_WORDS = [
+  'um', 'uh', 'you know', 'so', 'basically',
   'literally', 'actually', 'right', 'okay', 'hmm', 'ah',
 ]
 
-const DEFAULT_SETTINGS: Settings = {
-  removeFillerWords: true,
-  removeSilence: true,
-  silenceMode: 'no_speech',
+export const DEFAULT_SETTINGS: Settings = {
+  processingMode: 'audio_level',
+  removeNoSpeech: true,
+  removeFillerWords: false,
   silenceThresholdDb: -40,
   preCutPaddingMs: 50,
   postCutPaddingMs: 50,
   minSilenceDurationMs: 300,
   whisperModel: 'base.en',
-  fps: 24,
 }
+
+const DEFAULT_PRESET_NAME = 'Default'
 
 interface HistoryEntry {
   manualToggles: Record<number, ManualToggle>
@@ -55,7 +57,7 @@ interface AppState {
   cutRegions: CutRegion[]
   setCutRegions: (regions: CutRegion[]) => void
 
-  // Per-word manual overrides (index → 'keep' | 'cut')
+  // Per-word manual overrides
   manualToggles: Record<number, ManualToggle>
   toggleWord: (index: number) => void
   clearToggles: () => void
@@ -69,6 +71,17 @@ interface AppState {
   setFillerWords: (words: string[]) => void
   addFillerWord: (word: string) => void
   removeFillerWord: (word: string) => void
+
+  // Presets
+  presets: Record<string, PresetData>
+  activePreset: string
+  loadPresetsFromDisk: (data: { active: string; presets: Record<string, PresetData> }) => void
+  initDefaultPreset: () => void
+  switchPreset: (name: string) => void
+  createPreset: (name: string) => void
+  clonePreset: (name: string) => void
+  deletePreset: (name: string) => void
+  renamePreset: (oldName: string, newName: string) => void
 
   // Undo/redo
   history: HistoryEntry[]
@@ -96,6 +109,19 @@ function mergeRegions(regions: CutRegion[]): CutRegion[] {
     }
   }
   return merged
+}
+
+function syncPreset(
+  presets: Record<string, PresetData>,
+  activePreset: string,
+  settings: Settings,
+  fillerWords: string[],
+): Record<string, PresetData> {
+  if (!activePreset || !presets[activePreset]) return presets
+  return {
+    ...presets,
+    [activePreset]: { settings, fillerWords },
+  }
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -140,17 +166,14 @@ export const useStore = create<AppState>((set, get) => ({
 
     let next: Record<number, ManualToggle>
     if (current === undefined) {
-      // auto → forced opposite of auto decision
       next = { ...manualToggles, [index]: isWordCut(index) ? 'keep' : 'cut' }
     } else if (current === 'keep') {
       next = { ...manualToggles, [index]: 'cut' }
     } else {
-      // 'cut' → back to auto (remove override)
       next = { ...manualToggles }
       delete next[index]
     }
 
-    // push history
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push(prev)
     set({ manualToggles: next, history: newHistory, historyIndex: newHistory.length - 1 })
@@ -165,36 +188,162 @@ export const useStore = create<AppState>((set, get) => ({
 
   settings: DEFAULT_SETTINGS,
   updateSettings: (partial) =>
-    set((s) => ({ settings: { ...s.settings, ...partial } })),
+    set((s) => {
+      const settings = { ...s.settings, ...partial }
+      return {
+        settings,
+        presets: syncPreset(s.presets, s.activePreset, settings, s.fillerWords),
+      }
+    }),
 
   fillerWords: [...DEFAULT_FILLER_WORDS],
-  setFillerWords: (words) => set({ fillerWords: words }),
+  setFillerWords: (fillerWords) =>
+    set((s) => ({
+      fillerWords,
+      presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
+    })),
   addFillerWord: (word) => {
     const w = word.toLowerCase().trim()
     if (!w) return
-    set((s) => ({ fillerWords: s.fillerWords.includes(w) ? s.fillerWords : [...s.fillerWords, w] }))
+    set((s) => {
+      const fillerWords = s.fillerWords.includes(w) ? s.fillerWords : [...s.fillerWords, w]
+      return {
+        fillerWords,
+        presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
+      }
+    })
   },
   removeFillerWord: (word) =>
-    set((s) => ({ fillerWords: s.fillerWords.filter((fw) => fw !== word) })),
+    set((s) => {
+      const fillerWords = s.fillerWords.filter((fw) => fw !== word)
+      return {
+        fillerWords,
+        presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
+      }
+    }),
+
+  // ─── Presets ────────────────────────────────────────────────────────────────
+
+  presets: {
+    [DEFAULT_PRESET_NAME]: {
+      settings: DEFAULT_SETTINGS,
+      fillerWords: [...DEFAULT_FILLER_WORDS],
+    },
+  },
+  activePreset: DEFAULT_PRESET_NAME,
+
+  loadPresetsFromDisk: (data) => {
+    const { active, presets } = data
+    if (!presets || !Object.keys(presets).length) return
+    const activeName = presets[active] ? active : Object.keys(presets)[0]
+    const preset = presets[activeName]
+    set({
+      presets,
+      activePreset: activeName,
+      settings: preset.settings,
+      fillerWords: preset.fillerWords,
+    })
+  },
+
+  initDefaultPreset: () =>
+    set((s) => ({
+      presets: {
+        [DEFAULT_PRESET_NAME]: { settings: s.settings, fillerWords: s.fillerWords },
+      },
+      activePreset: DEFAULT_PRESET_NAME,
+    })),
+
+  switchPreset: (name) =>
+    set((s) => {
+      const preset = s.presets[name]
+      if (!preset) return {}
+      return {
+        activePreset: name,
+        settings: preset.settings,
+        fillerWords: preset.fillerWords,
+      }
+    }),
+
+  createPreset: (name) =>
+    set((s) => {
+      const trimmed = name.trim()
+      if (!trimmed) return {}
+      return {
+        presets: {
+          ...s.presets,
+          [trimmed]: { settings: { ...s.settings }, fillerWords: [...s.fillerWords] },
+        },
+        activePreset: trimmed,
+      }
+    }),
+
+  clonePreset: (sourceName) =>
+    set((s) => {
+      const source = s.presets[sourceName] ?? { settings: s.settings, fillerWords: s.fillerWords }
+      let newName = `${sourceName} (Copy)`
+      let i = 2
+      while (s.presets[newName]) newName = `${sourceName} (Copy ${i++})`
+      return {
+        presets: {
+          ...s.presets,
+          [newName]: { settings: { ...source.settings }, fillerWords: [...source.fillerWords] },
+        },
+        activePreset: newName,
+        settings: { ...source.settings },
+        fillerWords: [...source.fillerWords],
+      }
+    }),
+
+  deletePreset: (name) =>
+    set((s) => {
+      const keys = Object.keys(s.presets)
+      if (keys.length <= 1) return {}
+      const newPresets = { ...s.presets }
+      delete newPresets[name]
+      const newActive =
+        s.activePreset === name ? Object.keys(newPresets)[0] : s.activePreset
+      const preset = newPresets[newActive]
+      return {
+        presets: newPresets,
+        activePreset: newActive,
+        ...(s.activePreset === name
+          ? { settings: preset.settings, fillerWords: preset.fillerWords }
+          : {}),
+      }
+    }),
+
+  renamePreset: (oldName, newName) =>
+    set((s) => {
+      const trimmed = newName.trim()
+      if (!trimmed || s.presets[trimmed] || !s.presets[oldName]) return {}
+      const newPresets = { ...s.presets }
+      newPresets[trimmed] = newPresets[oldName]
+      delete newPresets[oldName]
+      return {
+        presets: newPresets,
+        activePreset: s.activePreset === oldName ? trimmed : s.activePreset,
+      }
+    }),
+
+  // ─── Undo / redo ─────────────────────────────────────────────────────────────
 
   history: [],
   historyIndex: -1,
   undo: () => {
     const { history, historyIndex } = get()
     if (historyIndex < 0) return
-    const entry = history[historyIndex]
-    set({ manualToggles: entry.manualToggles, historyIndex: historyIndex - 1 })
+    set({ manualToggles: history[historyIndex].manualToggles, historyIndex: historyIndex - 1 })
   },
   redo: () => {
     const { history, historyIndex, manualToggles } = get()
     if (historyIndex >= history.length - 1) return
-    const next = history[historyIndex + 1]
-    // swap current into that slot for undo
     history[historyIndex + 1] = { manualToggles: { ...manualToggles } }
-    set({ manualToggles: next.manualToggles, historyIndex: historyIndex + 1 })
+    set({ manualToggles: history[historyIndex + 1].manualToggles, historyIndex: historyIndex + 1 })
   },
   canUndo: () => get().historyIndex >= 0,
   canRedo: () => get().historyIndex < get().history.length - 1,
+
+  // ─── Derived ─────────────────────────────────────────────────────────────────
 
   isWordCut: (index) => {
     const { words, cutRegions, manualToggles } = get()
@@ -210,10 +359,8 @@ export const useStore = create<AppState>((set, get) => ({
     const { words, cutRegions, manualToggles, videoDuration } = get()
     if (!videoDuration) return []
 
-    // Combine server cuts with manual overrides
     let effectiveCuts: CutRegion[] = [...cutRegions]
 
-    // Remove cuts that overlap with force-kept words
     Object.entries(manualToggles).forEach(([idxStr, toggle]) => {
       const word = words[parseInt(idxStr)]
       if (!word) return

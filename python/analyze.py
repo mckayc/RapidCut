@@ -5,14 +5,13 @@ from typing import List, Dict, Any
 from pydub import AudioSegment
 from pydub.silence import detect_silence
 
-# Tell pydub exactly where ffmpeg lives (set by Electron host via FFMPEG_PATH env var).
 _ffmpeg = os.environ.get("FFMPEG_PATH")
 if _ffmpeg:
     AudioSegment.converter = _ffmpeg
     AudioSegment.ffmpeg = _ffmpeg
 
 DEFAULT_FILLER_WORDS = [
-    "um", "uh", "like", "you know", "so", "basically",
+    "um", "uh", "you know", "so", "basically",
     "literally", "actually", "right", "okay", "hmm", "ah",
 ]
 
@@ -22,9 +21,9 @@ def _normalize(word: str) -> str:
 
 
 def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict:
-    remove_filler = settings.get("removeFillerWords", True)
-    remove_silence = settings.get("removeSilence", True)
-    silence_mode = settings.get("silenceMode", "no_speech")
+    processing_mode = settings.get("processingMode", "audio_level")
+    remove_filler = settings.get("removeFillerWords", False)
+    remove_no_speech = settings.get("removeNoSpeech", True)
     silence_thresh_db = int(settings.get("silenceThresholdDb", -40))
     pre_padding_s = settings.get("preCutPaddingMs", 50) / 1000
     post_padding_s = settings.get("postCutPaddingMs", 50) / 1000
@@ -36,32 +35,55 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
 
     cut_regions: List[Dict] = []
 
-    if remove_filler and words:
-        for word in words:
-            if _normalize(word["word"]) in filler_set:
-                cut_regions.append({
-                    "start": word["start"],
-                    "end": word["end"],
-                    "reason": "filler_word",
-                })
-
-    if remove_silence and words:
-        if silence_mode == "no_speech":
+    if processing_mode == "speech":
+        if remove_filler and words:
+            for word in words:
+                if _normalize(word["word"]) in filler_set:
+                    cut_regions.append({
+                        "start": word["start"],
+                        "end": word["end"],
+                        "reason": "filler_word",
+                    })
+        if remove_no_speech and words:
             _add_no_speech_cuts(words, cut_regions, pre_padding_s, post_padding_s, min_silence_ms)
-        else:
-            _add_audio_silence_cuts(
-                file_path, cut_regions, silence_thresh_db,
-                pre_padding_s, post_padding_s, min_silence_ms,
-            )
+    else:
+        _add_audio_silence_cuts(
+            file_path, cut_regions, silence_thresh_db,
+            pre_padding_s, post_padding_s, min_silence_ms,
+        )
 
     merged = _merge_regions(cut_regions)
     return {"cut_regions": merged}
 
 
+def _group_speech_segments(words: List[Dict], merge_gap_s: float = 0.5) -> List[Dict]:
+    """Group consecutive words separated by gaps smaller than merge_gap_s into segments."""
+    if not words:
+        return []
+    segs = [{"start": words[0]["start"], "end": words[0]["end"]}]
+    for w in words[1:]:
+        if w["start"] - segs[-1]["end"] < merge_gap_s:
+            segs[-1]["end"] = w["end"]
+        else:
+            segs.append({"start": w["start"], "end": w["end"]})
+    return segs
+
+
 def _add_no_speech_cuts(words, cut_regions, pre_s, post_s, min_ms):
-    for i in range(len(words) - 1):
-        gap_start = words[i]["end"]
-        gap_end = words[i + 1]["start"]
+    segs = _group_speech_segments(words)
+    if not segs:
+        return
+
+    # Leading silence before first speech segment
+    if segs[0]["start"] * 1000 >= min_ms:
+        end = segs[0]["start"] - post_s
+        if end > 0:
+            cut_regions.append({"start": 0.0, "end": round(end, 3), "reason": "no_speech"})
+
+    # Gaps between speech segments
+    for i in range(len(segs) - 1):
+        gap_start = segs[i]["end"]
+        gap_end = segs[i + 1]["start"]
         if (gap_end - gap_start) * 1000 >= min_ms:
             start = gap_start + pre_s
             end = gap_end - post_s

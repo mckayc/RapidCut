@@ -15,6 +15,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface ProbeResult {
+  duration: number
+}
+
+export function probeFile(filePath: string): Promise<ProbeResult> {
+  return post('/probe', { file_path: filePath })
+}
+
 export interface TranscribeResult {
   words: Word[]
   duration: number
@@ -39,9 +47,9 @@ export function analyzeFile(
     words,
     file_path: filePath,
     settings: {
+      processingMode: settings.processingMode,
+      removeNoSpeech: settings.removeNoSpeech,
       removeFillerWords: settings.removeFillerWords,
-      removeSilence: settings.removeSilence,
-      silenceMode: settings.silenceMode,
       silenceThresholdDb: settings.silenceThresholdDb,
       preCutPaddingMs: settings.preCutPaddingMs,
       postCutPaddingMs: settings.postCutPaddingMs,
@@ -58,13 +66,11 @@ export interface ExportResult {
 export function exportXml(
   filePath: string,
   keepSegments: Segment[],
-  fps: number,
   sequenceName: string,
 ): Promise<ExportResult> {
   return post('/export', {
     file_path: filePath,
     keep_segments: keepSegments,
-    fps,
     sequence_name: sequenceName,
   })
 }

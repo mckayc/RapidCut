@@ -15,20 +15,24 @@ export interface Segment {
   end: number
 }
 
-export type SilenceMode = 'no_speech' | 'audio'
+export type ProcessingMode = 'audio_level' | 'speech'
 
 export type WhisperModel = 'tiny' | 'base' | 'base.en' | 'small' | 'medium'
 
 export interface Settings {
+  processingMode: ProcessingMode
+  removeNoSpeech: boolean
   removeFillerWords: boolean
-  removeSilence: boolean
-  silenceMode: SilenceMode
   silenceThresholdDb: number
   preCutPaddingMs: number
   postCutPaddingMs: number
   minSilenceDurationMs: number
   whisperModel: WhisperModel
-  fps: number
+}
+
+export interface PresetData {
+  settings: Settings
+  fillerWords: string[]
 }
 
 export type AppStatus =

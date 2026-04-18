@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore'
 import { exportXml } from '../api'
 
 export default function ExportButton() {
-  const { filePath, fileName, settings, getKeepSegments, setStatus, status } = useStore()
+  const { filePath, fileName, getKeepSegments, setStatus, status } = useStore()
   const [error, setError] = useState('')
   const isExporting = status === 'exporting'
 
@@ -15,12 +15,12 @@ export default function ExportButton() {
       return
     }
 
-    setStatus('exporting', 'Generating XML…')
+    setStatus('exporting', 'Generating FCPXML…')
     setError('')
 
     try {
       const sequenceName = fileName.replace(/\.[^.]+$/, '') + ' — RapidCut'
-      const { xml } = await exportXml(filePath, keepSegments, settings.fps, sequenceName)
+      const { xml } = await exportXml(filePath, keepSegments, sequenceName)
 
       const sourceDir = filePath.replace(/[/\\][^/\\]+$/, '')
       const defaultName = sourceDir + '/' + fileName.replace(/\.[^.]+$/, '') + '_rapidcut.fcpxml'
@@ -63,7 +63,7 @@ export default function ExportButton() {
           disabled={isExporting || !filePath}
           className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shadow-lg"
         >
-          {isExporting ? 'Exporting…' : 'Export XML for DaVinci Resolve'}
+          {isExporting ? 'Exporting…' : 'Export FCPXML'}
         </button>
       </div>
     </div>
