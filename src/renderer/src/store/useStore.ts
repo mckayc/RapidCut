@@ -134,7 +134,7 @@ interface AppState {
   // Titles & Templates
   titles: TitleInstance[]
   templates: TitleTemplate[]
-  addTitle: (wordIndex: number, text: string, templateId: string) => void
+  addTitle: (wordIndex: number, text: string, templateId: string, duration?: number) => void
   removeTitle: (id: string) => void
   createTemplate: (name: string) => void
   updateTemplate: (id: string, partial: Partial<TitleTemplate>) => void
@@ -386,14 +386,14 @@ export const useStore = create<AppState>((set, get) => ({
     }
   ],
 
-  addTitle: (wordIndex, text, templateId) => set((s) => {
+  addTitle: (wordIndex, text, templateId, duration) => set((s) => {
     const word = s.words[wordIndex]
     if (!word) return s
     const newTitle: TitleInstance = {
       id: crypto.randomUUID(),
       text,
       startTime: word.start,
-      duration: s.settings.defaultTitleDuration || 3.0,
+      duration: duration ?? s.settings.defaultTitleDuration ?? 3.0,
       templateId,
       wordIndex
     }

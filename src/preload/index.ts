@@ -31,4 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('open-external', url),
+
+  getSystemFonts: (): Promise<Array<{ name: string; path: string }>> =>
+    ipcRenderer.invoke('get-system-fonts'),
 })

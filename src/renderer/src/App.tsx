@@ -190,8 +190,10 @@ export default function App() {
   const view = useStore((s) => s.view)
   const isError = status === 'error'
 
+  const handleReady = useCallback(() => setPhase('main'), [])
+
   if (phase === 'setup') {
-    return <SetupScreen onReady={() => setPhase('main')} />
+    return <SetupScreen onReady={handleReady} />
   }
 
   return (

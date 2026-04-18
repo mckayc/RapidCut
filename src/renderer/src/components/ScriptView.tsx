@@ -3,18 +3,19 @@ import { useStore } from '../store/useStore'
 import type { Word } from '../types'
 
 export default function ScriptView() {
-  const { 
-    words, 
-    audioPath, 
-    currentTime, 
-    setCurrentTime, 
-    playbackSpeed, 
+  const {
+    words,
+    audioPath,
+    currentTime,
+    setCurrentTime,
+    playbackSpeed,
     setPlaybackSpeed,
     videoDuration,
     isWordCut,
     addTitle,
     titles,
-    templates
+    templates,
+    settings,
   } = useStore()
   
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -24,6 +25,7 @@ export default function ScriptView() {
   const [addingTitleAtIndex, setAddingTitleAtIndex] = useState<number | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [titleDuration, setTitleDuration] = useState(settings.defaultTitleDuration ?? 3.0)
   
   // Track active word index to prevent jitter and redundant scrolls
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1)
@@ -35,10 +37,11 @@ export default function ScriptView() {
     }
   }, [playbackSpeed])
 
-  // Initialize template selection when modal opens
+  // Initialize template + duration when modal opens
   useEffect(() => {
-    if (addingTitleAtIndex !== null && templates.length > 0 && !selectedTemplateId) {
-      setSelectedTemplateId(templates[0].id)
+    if (addingTitleAtIndex !== null) {
+      if (templates.length > 0 && !selectedTemplateId) setSelectedTemplateId(templates[0].id)
+      setTitleDuration(settings.defaultTitleDuration ?? 3.0)
     }
   }, [addingTitleAtIndex, templates])
 
@@ -245,7 +248,7 @@ export default function ScriptView() {
                 placeholder="Enter title text..."
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && titleDraft) {
-                    addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId)
+                    addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId, titleDuration)
                     setAddingTitleAtIndex(null)
                   }
                 }}
@@ -263,10 +266,22 @@ export default function ScriptView() {
               </select>
             </div>
 
+            <div className="space-y-1">
+              <label className="text-[10px] text-gray-500 uppercase font-bold">Duration (seconds)</label>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={titleDuration}
+                onChange={(e) => setTitleDuration(Math.max(0.5, Number(e.target.value)))}
+                className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setAddingTitleAtIndex(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
-              <button 
-                onClick={() => { addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId); setAddingTitleAtIndex(null) }}
+              <button
+                onClick={() => { addTitle(addingTitleAtIndex, titleDraft, selectedTemplateId, titleDuration); setAddingTitleAtIndex(null) }}
                 disabled={!titleDraft}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
               >Create Title</button>

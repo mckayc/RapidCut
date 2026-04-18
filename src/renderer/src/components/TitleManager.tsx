@@ -20,6 +20,15 @@ export default function TitleManager() {
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState<'move' | 'resize' | null>(null)
+  const [canvasHeight, setCanvasHeight] = useState(0)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setCanvasHeight(el.clientHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const handleCanvasInteraction = (e: React.MouseEvent) => {
     if (!selectedTemplate || !containerRef.current || !isDragging) return
@@ -123,12 +132,15 @@ export default function TitleManager() {
                   onMouseDown={() => setIsDragging('move')}
                 >
                   <div className="p-2 h-full flex flex-col pointer-events-none">
-                    <span 
-                      className="text-white font-bold break-words line-clamp-2"
-                      style={{ 
-                        fontSize: selectedTemplate.isDynamic ? 'inherit' : `${selectedTemplate.fontSize / 4}px`,
+                    <span
+                      className="text-white font-bold break-words overflow-hidden"
+                      style={{
+                        fontSize: selectedTemplate.isDynamic
+                          ? `${Math.max(8, (selectedTemplate.box.height / 100) * canvasHeight * 0.5)}px`
+                          : `${selectedTemplate.fontSize / 4}px`,
                         textAlign: selectedTemplate.alignment,
-                        color: selectedTemplate.color
+                        color: selectedTemplate.color,
+                        lineHeight: 1.2,
                       }}
                     >
                       Demo Title Text

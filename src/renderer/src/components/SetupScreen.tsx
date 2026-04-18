@@ -180,10 +180,8 @@ export default function SetupScreen({ onReady }: Props) {
             (k) => k in pyCheck && pyCheck[k] && !pyCheck[k].available,
           )
           if (missing.length > 0) {
-            // Automatically try to install missing packages
             await handleInstallPip()
-            // Try to launch again after install
-            return handleLaunch()
+            // Don't recurse — if packages are still missing, errors will surface on use
           }
         }
       } catch {

@@ -73,6 +73,7 @@ declare global {
       installFfmpeg: () => Promise<{ success: boolean; output: string; manual?: string }>
       startServer: () => Promise<{ success: boolean; error?: string }>
       openExternal: (url: string) => Promise<void>
+      getSystemFonts: () => Promise<Array<{ name: string; path: string }>>
     }
   }
 }

@@ -17,6 +17,16 @@ from render_titles import render_title
 _FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
 
 
+def _ts_filename(start_time: float) -> str:
+    """Convert seconds to a HH_MM_SS_cc.png filename (cc = centiseconds)."""
+    total_s = int(start_time)
+    cc = round((start_time % 1) * 100)
+    h = total_s // 3600
+    m = (total_s % 3600) // 60
+    s = total_s % 60
+    return f"{h:02d}_{m:02d}_{s:02d}_{cc:02d}.png"
+
+
 def _ffprobe_path() -> str:
     if _FFMPEG and _FFMPEG != "ffmpeg":
         ext = os.path.splitext(_FFMPEG)[1]
@@ -184,19 +194,18 @@ def export_endpoint(req: ExportRequest):
             templates_by_id = {t["id"]: t for t in req.templates if "id" in t}
             fallback_template = req.templates[0]
 
-            # Place PNGs next to the output FCPXML so FCP can always find them
+            # Place PNGs in the same directory as the output FCPXML (easy to find in Resolve/FCP)
             if req.save_path:
-                save_dir = os.path.dirname(os.path.abspath(req.save_path))
-                base_name = os.path.splitext(os.path.basename(req.save_path))[0]
-                titles_dir = os.path.join(save_dir, f"{base_name}_titles")
+                titles_dir = os.path.dirname(os.path.abspath(req.save_path))
             else:
                 titles_dir = tempfile.mkdtemp(prefix="rapidcut_titles_")
 
             os.makedirs(titles_dir, exist_ok=True)
             rendered_titles = []
-            for i, t in enumerate(req.titles):
+            for t in req.titles:
                 template = templates_by_id.get(t.templateId, fallback_template) if t.templateId else fallback_template
-                out_path = os.path.join(titles_dir, f"title_{i}.png")
+                filename = _ts_filename(t.startTime)
+                out_path = os.path.join(titles_dir, filename)
                 render_title(t.text, template, out_path, req.resolution or "1080p")
                 rendered_titles.append({
                     "path": out_path,
