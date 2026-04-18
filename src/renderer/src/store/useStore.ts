@@ -408,11 +408,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({ manualToggles: entry.manualToggles, manualTimeCuts: entry.manualTimeCuts, historyIndex: historyIndex - 1 })
   },
   redo: () => {
-    const { history, historyIndex, manualToggles, manualTimeCuts } = get()
+    const { history, historyIndex } = get()
     if (historyIndex >= history.length - 1) return
-    history[historyIndex + 1] = { manualToggles: { ...manualToggles }, manualTimeCuts: [...manualTimeCuts] }
     const entry = history[historyIndex + 1]
-    set({ manualToggles: entry.manualToggles, manualTimeCuts: entry.manualTimeCuts, historyIndex: historyIndex + 1 })
+    set({ manualToggles: { ...entry.manualToggles }, manualTimeCuts: [...entry.manualTimeCuts], historyIndex: historyIndex + 1 })
   },
   canUndo: () => get().historyIndex >= 0,
   canRedo: () => get().historyIndex < get().history.length - 1,

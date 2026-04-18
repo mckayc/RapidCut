@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 from fractions import Fraction
+from urllib.parse import quote
 from typing import List, Dict, Tuple
 
 FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
@@ -84,7 +85,7 @@ def build_xml(
     sequence_name: str = "RapidCut Export",
 ) -> str:
     abs_path = os.path.abspath(file_path).replace("\\", "/")
-    file_uri = "file:///" + abs_path.lstrip("/")
+    file_uri = "file:///" + quote(abs_path.lstrip("/"))
     base_name = os.path.basename(file_path)
     uid = hashlib.md5(abs_path.encode()).hexdigest().upper()
 

@@ -6,6 +6,8 @@ import os
 # Use the explicit path supplied by the Electron host; fall back to PATH lookup.
 FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
 
+_MODEL_CACHE = {}
+
 
 def extract_audio(video_path: str) -> str:
     """Extract audio track from video to a temporary 16kHz mono WAV."""
@@ -32,7 +34,10 @@ def extract_audio(video_path: str) -> str:
 def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
     audio_path = extract_audio(file_path)
     try:
-        model = whisper.load_model(model_name)
+        if model_name not in _MODEL_CACHE:
+            _MODEL_CACHE[model_name] = whisper.load_model(model_name)
+        model = _MODEL_CACHE[model_name]
+        
         result = model.transcribe(audio_path, word_timestamps=True)
 
         words = []
