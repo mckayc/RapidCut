@@ -6,15 +6,6 @@ FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
 
 _MODEL_CACHE: dict = {}
 
-# Distil-Whisper models are CTranslate2-converted and hosted by Systran on HuggingFace.
-# faster-whisper can load them directly by repo ID.
-_DISTIL_MODEL_MAP = {
-    "distil-small.en":  "Systran/faster-distil-whisper-small.en",
-    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
-    "distil-large-v3":  "Systran/faster-distil-whisper-large-v3",
-}
-
-
 def extract_audio(video_path: str) -> str:
     """Extract audio track from video to a temporary 16kHz mono WAV."""
     fd, tmp = tempfile.mkstemp(suffix=".wav")
@@ -41,11 +32,10 @@ def extract_audio(video_path: str) -> str:
 def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
     audio_path = extract_audio(file_path)
     try:
-        repo_id = _DISTIL_MODEL_MAP.get(model_name, model_name)
         if model_name not in _MODEL_CACHE:
             from faster_whisper import WhisperModel
             _MODEL_CACHE[model_name] = WhisperModel(
-                repo_id,
+                model_name,
                 device="cpu",
                 compute_type="int8",
             )
@@ -57,19 +47,19 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
             # Don't feed previous output back as a prompt — stops the LM from
             # collapsing repeated words and false starts across segment boundaries.
             condition_on_previous_text=False,
-            # Raise the ceiling so segments with genuine repetition aren't discarded.
-            compression_ratio_threshold=3.0,
-            # Prime the decoder toward verbatim output.
-            initial_prompt="Transcribe exactly as spoken, including all repeated words, false starts, and filler words.",
-            # Skip silent regions before decoding — free speed boost.
-            vad_filter=True,
-            # Lower the no-speech threshold so short disfluent fragments (false starts,
-            # incomplete phrases before a retry) are kept rather than silently dropped.
-            # Default is 0.6, which is too aggressive for preserving first attempts.
-            no_speech_threshold=0.3,
-            # Slight temperature nudges the decoder away from its most "cleaned-up"
-            # prediction, making it more likely to transcribe what was actually said.
-            temperature=0.2,
+            # Disable heuristic filters that cause Whisper to skip "repetitive" or "low quality" segments.
+            compression_ratio_threshold=None,
+            log_prob_threshold=None,
+            no_speech_threshold=0.1,
+            # Prime the decoder with a "disfluent" example. This trick forces the model to 
+            # expect and output stutters and repetitions rather than cleaning them up.
+            initial_prompt="Um, uh, I... I just, I just wanted to say. You know, so in order, in order to... transcribe everything exactly verbatim, including every stutter and repetition.",
+            # Disable VAD filter to ensure short disfluent fragments aren't skipped.
+            vad_filter=False,
+            # Higher beam size allows the model to consider more candidates, preventing it 
+            # from "settling" on a cleaned-up version of a sentence.
+            beam_size=10,
+            temperature=0,
         )
 
         words = []

@@ -7,9 +7,6 @@ const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] =
   { value: 'base.en',          label: 'Base English (recommended)',         group: 'Whisper' },
   { value: 'small',            label: 'Small (better accuracy)',            group: 'Whisper' },
   { value: 'medium',           label: 'Medium (best accuracy)',             group: 'Whisper' },
-  { value: 'distil-small.en',  label: 'Distil Small English (fast)',        group: 'Distil-Whisper' },
-  { value: 'distil-medium.en', label: 'Distil Medium English (recommended)', group: 'Distil-Whisper' },
-  { value: 'distil-large-v3',  label: 'Distil Large v3 (best accuracy)',   group: 'Distil-Whisper' },
 ]
 
 // ─── Slider ──────────────────────────────────────────────────────────────────
@@ -411,11 +408,6 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
               >
                 <optgroup label="Whisper">
                   {WHISPER_MODELS.filter(m => m.group === 'Whisper').map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Distil-Whisper (faster)">
-                  {WHISPER_MODELS.filter(m => m.group === 'Distil-Whisper').map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </optgroup>

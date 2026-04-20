@@ -685,9 +685,17 @@ export const useStore = create<AppState>((set, get) => ({
     return cutRegions.some((r) => {
       const actualPre = r.start === 0 ? 0 : pre
       const actualPost = r.end >= videoDuration ? 0 : post
-      const paddedStart = r.start + actualPre
-      const paddedEnd = r.end - actualPost
-      return paddedStart < word.end && paddedEnd > word.start
+      const paddedStart = r.start + (r.start === 0 ? 0 : pre)
+      const paddedEnd = r.end - (r.end >= videoDuration ? 0 : post)
+
+      const wordDuration = word.end - word.start
+      const overlapStart = Math.max(word.start, paddedStart)
+      const overlapEnd = Math.min(word.end, paddedEnd)
+      const overlapDuration = Math.max(0, overlapEnd - overlapStart)
+      
+      // Only cut if the silence region covers more than 50% of the word.
+      // This protects words from being "clipped" by silence-detection padding.
+      return (overlapDuration / wordDuration) > 0.5
     })
   },
 
@@ -698,14 +706,35 @@ export const useStore = create<AppState>((set, get) => ({
     const pre = settings.preCutPaddingMs / 1000
     const post = settings.postCutPaddingMs / 1000
 
-    // 1. Start with Python silence cuts, applying live padding
+    // 1. Start with Python silence cuts, applying live padding and snapping to words
     let effectiveCuts: CutRegion[] = cutRegions.map(r => {
       const actualPre = r.start === 0 ? 0 : pre
       const actualPost = r.end >= videoDuration ? 0 : post
+      let pStart = r.start + actualPre
+      let pEnd = r.end - actualPost
+
+      // Word-Aware Snapping:
+      // Ensure that cut regions (silence) do not overlap with words that are supposed to be kept.
+      if (settings.processingMode === 'speech') {
+        words.forEach(w => {
+          const wordIdx = words.indexOf(w)
+          if (!get().isWordCut(wordIdx)) {
+            // If the cut region overlaps the start of a "keep" word, snap cut end to the word's start
+            if (pEnd > w.start && pStart < w.start) {
+              pEnd = w.start
+            }
+            // If the cut region overlaps the end of a "keep" word, snap cut start to the word's end
+            if (pStart < w.end && pEnd > w.end) {
+              pStart = w.end
+            }
+          }
+        })
+      }
+
       return {
         ...r,
-        start: r.start + actualPre,
-        end: Math.max(r.start + actualPre, r.end - actualPost)
+        start: pStart,
+        end: Math.max(pStart, pEnd)
       }
     })
 
