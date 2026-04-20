@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useStore } from '../store/useStore'
 import type { WhisperModel, ProcessingMode } from '../types'
 
-const WHISPER_MODELS: { value: WhisperModel; label: string }[] = [
-  { value: 'tiny', label: 'Tiny (fastest, lower accuracy)' },
-  { value: 'base.en', label: 'Base English (recommended)' },
-  { value: 'small', label: 'Small (slower, better accuracy)' },
-  { value: 'medium', label: 'Medium (slowest, best accuracy)' },
+const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] = [
+  { value: 'tiny',             label: 'Tiny (fastest, lower accuracy)',     group: 'Whisper' },
+  { value: 'base.en',          label: 'Base English (recommended)',         group: 'Whisper' },
+  { value: 'small',            label: 'Small (better accuracy)',            group: 'Whisper' },
+  { value: 'medium',           label: 'Medium (best accuracy)',             group: 'Whisper' },
+  { value: 'distil-small.en',  label: 'Distil Small English (fast)',        group: 'Distil-Whisper' },
+  { value: 'distil-medium.en', label: 'Distil Medium English (recommended)', group: 'Distil-Whisper' },
+  { value: 'distil-large-v3',  label: 'Distil Large v3 (best accuracy)',   group: 'Distil-Whisper' },
 ]
 
 // ─── Slider ──────────────────────────────────────────────────────────────────
@@ -233,7 +236,7 @@ interface Props {
 }
 
 export default function SettingsPanel({ showModelSelector = false, onOpenFillerManager }: Props) {
-  const { settings, updateSettings, fillerWords } = useStore()
+  const { settings, updateSettings, fillerWords, lastTranscribeDuration } = useStore()
 
   function update<K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) {
     updateSettings({ [key]: value })
@@ -366,6 +369,28 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
             )}
           </div>
 
+          {/* Remove filler words toggle */}
+          <div className="flex flex-col gap-1.5">
+            <Toggle
+              label="Detect Repeated Phrases"
+              checked={settings.detectRepeatedPhrases}
+              onChange={(v) => update('detectRepeatedPhrases', v)}
+            />
+            {settings.detectRepeatedPhrases && (
+              <div className="flex flex-col gap-2 pl-1">
+                <Slider
+                  label="Minimum Phrase Length"
+                  value={settings.minRepeatPhraseLength}
+                  min={2} max={8} step={1} unit=" words"
+                  onChange={(v) => update('minRepeatPhraseLength', v)}
+                />
+                <p className="text-xs text-gray-600">
+                  Marks the first occurrence of a repeated phrase as a cut.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Whisper model — shown when idle/before first drop */}
           {showModelSelector && (
             <div className="flex flex-col gap-1.5">
@@ -377,12 +402,22 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
                 onChange={(e) => update('whisperModel', e.target.value as WhisperModel)}
                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
               >
-                {WHISPER_MODELS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
+                <optgroup label="Whisper">
+                  {WHISPER_MODELS.filter(m => m.group === 'Whisper').map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Distil-Whisper (faster)">
+                  {WHISPER_MODELS.filter(m => m.group === 'Distil-Whisper').map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </optgroup>
               </select>
+              {lastTranscribeDuration !== null && (
+                <p className="text-xs text-gray-600 font-mono">
+                  Last run: {lastTranscribeDuration.toFixed(1)}s
+                </p>
+              )}
             </div>
           )}
         </div>

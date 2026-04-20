@@ -7,7 +7,7 @@ export interface Word {
 export interface CutRegion {
   start: number
   end: number
-  reason: 'filler_word' | 'silence' | 'no_speech' | 'manual'
+  reason: 'filler_word' | 'silence' | 'no_speech' | 'manual' | 'repeated_phrase'
 }
 
 export interface Segment {
@@ -17,7 +17,15 @@ export interface Segment {
 
 export type ProcessingMode = 'audio_level' | 'speech'
 
-export type WhisperModel = 'tiny' | 'base' | 'base.en' | 'small' | 'medium'
+export type WhisperModel =
+  | 'tiny'
+  | 'base'
+  | 'base.en'
+  | 'small'
+  | 'medium'
+  | 'distil-small.en'
+  | 'distil-medium.en'
+  | 'distil-large-v3'
 
 export interface Settings {
   processingMode: ProcessingMode
@@ -30,6 +38,8 @@ export interface Settings {
   whisperModel: WhisperModel
   titleResolution: string
   defaultTitleDuration: number
+  detectRepeatedPhrases: boolean
+  minRepeatPhraseLength: number
 }
 
 export interface PresetData {

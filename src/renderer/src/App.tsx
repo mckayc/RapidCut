@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from './store/useStore'
 import { transcribeFile, probeFile, analyzeFile, exportXml } from './api'
+import type { Word } from './types'
 import Header from './components/Header'
 import DropZone from './components/DropZone'
 import SettingsPanel from './components/SettingsPanel'
@@ -13,7 +14,7 @@ import TitleManager from './components/TitleManager'
 
 const DEBOUNCE_MS = 400
 
-type AppPhase = 'setup' | 'main'
+type AppPhase = 'setup' | 'setup-from-main' | 'main'
 
 export default function App() {
   const [phase, setPhase] = useState<AppPhase>('setup')
@@ -22,7 +23,6 @@ export default function App() {
     status,
     statusMessage,
     settings,
-    fillerWords,
     presets,
     activePreset,
     setFile,
@@ -105,15 +105,25 @@ export default function App() {
     if (!fp) return
     setStatus('analyzing', 'Analyzing…')
     try {
-      const result = await analyzeFile(words, fp, settings, fillerWords)
+      const result = await analyzeFile(words, fp, settings)
       setCutRegions(result.cut_regions)
       setStatus('ready', '')
     } catch (err) {
       setStatus('error', err instanceof Error ? err.message : String(err))
     }
-  }, [settings, fillerWords])
+  }, [settings.processingMode, settings.removeNoSpeech, settings.silenceThresholdDb, settings.preCutPaddingMs, settings.postCutPaddingMs, settings.minSilenceDurationMs])
 
-  // Re-analyze when settings or filler words change (debounced, only when ready)
+  // Re-analyze via Python only when silence-detection settings change.
+  // Filler words and repeated phrase detection are handled purely in the frontend store.
+  const pythonAnalysisKey = [
+    settings.processingMode,
+    settings.removeNoSpeech,
+    settings.silenceThresholdDb,
+    settings.preCutPaddingMs,
+    settings.postCutPaddingMs,
+    settings.minSilenceDurationMs,
+  ].join('|')
+
   useEffect(() => {
     if (status !== 'ready' && status !== 'analyzing') return
     const { filePath: fp } = useStore.getState()
@@ -123,7 +133,7 @@ export default function App() {
     return () => {
       if (analyzeDebounce.current) clearTimeout(analyzeDebounce.current)
     }
-  }, [settings, fillerWords])
+  }, [pythonAnalysisKey])
 
   const handleFile = useCallback(
     async (fp: string, fn: string) => {
@@ -134,8 +144,10 @@ export default function App() {
 
       if (settings.processingMode === 'speech') {
         setStatus('transcribing', 'Transcribing audio…')
+        const t0 = Date.now()
         try {
           const result = await transcribeFile(fp, settings.whisperModel)
+          useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
           words = result.words as Word[]
           duration = result.duration
           setWords(words, duration, result.audio_path)
@@ -157,7 +169,7 @@ export default function App() {
 
       setStatus('analyzing', 'Analyzing…')
       try {
-        const analysis = await analyzeFile(words, fp, settings, fillerWords)
+        const analysis = await analyzeFile(words, fp, settings)
         setCutRegions(analysis.cut_regions)
 
         if (mode === 'auto') {
@@ -181,7 +193,7 @@ export default function App() {
         setStatus('error', err instanceof Error ? err.message : String(err))
       }
     },
-    [mode, settings, fillerWords],
+    [mode, settings],
   )
 
   const isIdle = status === 'idle'
@@ -191,14 +203,19 @@ export default function App() {
   const isError = status === 'error'
 
   const handleReady = useCallback(() => setPhase('main'), [])
+  const handleSetup = useCallback(() => setPhase('setup-from-main'), [])
 
   if (phase === 'setup') {
-    return <SetupScreen onReady={handleReady} />
+    return <SetupScreen onReady={handleReady} fromMain={false} />
+  }
+
+  if (phase === 'setup-from-main') {
+    return <SetupScreen onReady={handleReady} fromMain={true} />
   }
 
   return (
     <div className="flex flex-col h-screen bg-[#0f1117] text-gray-200 overflow-hidden">
-      <Header />
+      <Header onSetup={handleSetup} />
 
       {/* Toast */}
       {toast && (

@@ -25,7 +25,9 @@ export const DEFAULT_SETTINGS: Settings = {
   minSilenceDurationMs: 300,
   whisperModel: 'base.en',
   titleResolution: '1080p',
-  defaultTitleDuration: 3.0
+  defaultTitleDuration: 3.0,
+  detectRepeatedPhrases: false,
+  minRepeatPhraseLength: 3,
 }
 
 const DEFAULT_PRESET_NAME = 'Default'
@@ -102,6 +104,14 @@ interface AppState {
   words: Word[]
   setWords: (words: Word[], duration: number, audioPath?: string) => void
 
+  // Frontend-computed cut regions (filler words + repeated phrases — no Python needed)
+  frontendCutRegions: CutRegion[]
+  recomputeFrontendCuts: () => void
+
+  // Transcription timing
+  lastTranscribeDuration: number | null
+  setTranscribeDuration: (seconds: number) => void
+
   // Cut regions from server
   cutRegions: CutRegion[]
   setCutRegions: (regions: CutRegion[]) => void
@@ -171,6 +181,49 @@ interface AppState {
   getCleanTranscript: () => string
 }
 
+function computeFrontendCuts(words: Word[], settings: Settings, fillerWords: string[]): CutRegion[] {
+  const norm = (w: string) => w.toLowerCase().replace(/[^\w]/g, '')
+  const regions: CutRegion[] = []
+
+  if (settings.removeFillerWords && words.length) {
+    const fillerSet = new Set(fillerWords.map(norm))
+    for (let i = 0; i < words.length; i++) {
+      if (fillerSet.has(norm(words[i].word))) {
+        const start = i > 0 ? words[i - 1].end : 0
+        regions.push({ start, end: words[i].end + 0.05, reason: 'filler_word' })
+      }
+    }
+  }
+
+  if (settings.detectRepeatedPhrases && words.length) {
+    const minLen = Math.max(2, settings.minRepeatPhraseLength ?? 3)
+    const maxLen = Math.min(minLen + 5, 10)
+    const MAX_GAP_S = 10.0
+    let i = 0
+    while (i < words.length) {
+      let found = false
+      for (let n = maxLen; n >= minLen; n--) {
+        if (i + 2 * n > words.length) continue
+        const p1 = words.slice(i, i + n).map(w => norm(w.word))
+        const p2 = words.slice(i + n, i + 2 * n).map(w => norm(w.word))
+        if (!p1.every(w => w.length > 0)) continue
+        if (p1.every((w, j) => w === p2[j])) {
+          const gap = words[i + n].start - words[i + n - 1].end
+          if (gap <= MAX_GAP_S) {
+            regions.push({ start: words[i].start, end: words[i + n - 1].end, reason: 'repeated_phrase' })
+            i += n
+            found = true
+            break
+          }
+        }
+      }
+      if (!found) i++
+    }
+  }
+
+  return regions
+}
+
 function mergeRegions(regions: CutRegion[]): CutRegion[] {
   if (!regions.length) return []
   const sorted = [...regions].sort((a, b) => a.start - b.start)
@@ -234,8 +287,19 @@ export const useStore = create<AppState>((set, get) => ({
   setStatus: (status, message = '') => set({ status, statusMessage: message }),
 
   words: [],
-  setWords: (words, duration, audioPath) => 
-    set({ words, videoDuration: duration, audioPath: audioPath || null }),
+  setWords: (words, duration, audioPath) => {
+    set({ words, videoDuration: duration, audioPath: audioPath || null })
+    get().recomputeFrontendCuts()
+  },
+
+  frontendCutRegions: [],
+  recomputeFrontendCuts: () => {
+    const { words, settings, fillerWords } = get()
+    set({ frontendCutRegions: computeFrontendCuts(words, settings, fillerWords) })
+  },
+
+  lastTranscribeDuration: null,
+  setTranscribeDuration: (seconds) => set({ lastTranscribeDuration: seconds }),
 
   setCurrentTime: (currentTime) => set({ currentTime }),
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
@@ -332,21 +396,25 @@ export const useStore = create<AppState>((set, get) => ({
     }),
 
   settings: DEFAULT_SETTINGS,
-  updateSettings: (partial) =>
+  updateSettings: (partial) => {
     set((s) => {
       const settings = { ...s.settings, ...partial }
       return {
         settings,
         presets: syncPreset(s.presets, s.activePreset, settings, s.fillerWords),
       }
-    }),
+    })
+    get().recomputeFrontendCuts()
+  },
 
   fillerWords: [...DEFAULT_FILLER_WORDS],
-  setFillerWords: (fillerWords) =>
+  setFillerWords: (fillerWords) => {
     set((s) => ({
       fillerWords,
       presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
-    })),
+    }))
+    get().recomputeFrontendCuts()
+  },
   addFillerWord: (word) => {
     const w = word.toLowerCase().trim()
     if (!w) return
@@ -357,15 +425,18 @@ export const useStore = create<AppState>((set, get) => ({
         presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
       }
     })
+    get().recomputeFrontendCuts()
   },
-  removeFillerWord: (word) =>
+  removeFillerWord: (word) => {
     set((s) => {
       const fillerWords = s.fillerWords.filter((fw) => fw !== word)
       return {
         fillerWords,
         presets: syncPreset(s.presets, s.activePreset, s.settings, fillerWords),
       }
-    }),
+    })
+    get().recomputeFrontendCuts()
+  },
 
   setTitleResolution: (titleResolution) => set((s) => ({ 
     settings: { ...s.settings, titleResolution } 
@@ -575,21 +646,22 @@ export const useStore = create<AppState>((set, get) => ({
   // ─── Derived ─────────────────────────────────────────────────────────────────
 
   isWordCut: (index) => {
-    const { words, cutRegions, manualToggles, manualTimeCuts } = get()
+    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts } = get()
     const word = words[index]
     if (!word) return false
     const override = manualToggles[index]
     if (override === 'keep') return false
     if (override === 'cut') return true
     if (manualTimeCuts.some((tc) => tc.start <= word.start && tc.end >= word.end)) return true
+    if (frontendCutRegions.some((r) => r.start <= word.start && r.end >= word.end)) return true
     return cutRegions.some((r) => r.start <= word.start && r.end >= word.end)
   },
 
   getKeepSegments: () => {
-    const { words, cutRegions, manualToggles, manualTimeCuts, videoDuration, isWordCut } = get()
+    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts, videoDuration, isWordCut } = get()
     if (!videoDuration) return []
 
-    let effectiveCuts: CutRegion[] = [...cutRegions]
+    let effectiveCuts: CutRegion[] = [...cutRegions, ...frontendCutRegions]
 
     // Apply time-range cuts (covers full sentence spans including inter-word gaps)
     for (const tc of manualTimeCuts) {

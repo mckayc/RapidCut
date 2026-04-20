@@ -65,9 +65,9 @@ def check_deps():
     except (subprocess.CalledProcessError, FileNotFoundError):
         results["ffmpeg"] = {"available": False}
 
-    # whisper
+    # faster-whisper
     try:
-        import whisper  # noqa: F401
+        from faster_whisper import WhisperModel  # noqa: F401
         results["whisper"] = {"available": True}
     except ImportError as e:
         results["whisper"] = {"available": False, "error": str(e)}

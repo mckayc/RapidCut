@@ -281,6 +281,13 @@ async function startServer(): Promise<{ success: boolean; error?: string }> {
   }
   await killPortWin(PYTHON_PORT)
 
+  // Ensure Python packages are installed before spawning the server.
+  // This silently catches any install failures — the server will surface missing
+  // imports with a clear error message if something is still absent.
+  try {
+    await installPipDeps()
+  } catch {}
+
   await spawnPythonServer()
   try {
     await waitForPython()
@@ -325,7 +332,7 @@ app.whenReady().then(() => {
       if (!decodedPath) throw new Error('No path provided to media protocol')
       
       const fileUrl = pathToFileURL(decodedPath).toString()
-      return net.fetch(fileUrl)
+      return net.fetch(fileUrl, { headers: request.headers })
     } catch (err) {
       console.error(`[Main] Media protocol error: ${err}`)
       return new Response('Invalid Path', { status: 400 })

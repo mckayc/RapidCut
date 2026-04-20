@@ -72,6 +72,18 @@ export default function ScriptView() {
     }
   }, [activeWordIndex])
 
+  const seekAndPlay = useCallback((time: number) => {
+    const audio = audioRef.current
+    if (!audio) return
+    setCurrentTime(time)
+    const onSeeked = () => {
+      audio.removeEventListener('seeked', onSeeked)
+      audio.play().catch(() => {})
+    }
+    audio.addEventListener('seeked', onSeeked)
+    audio.currentTime = time
+  }, [setCurrentTime])
+
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value)
     if (audioRef.current) {
@@ -200,13 +212,7 @@ export default function ScriptView() {
                     <React.Fragment key={wi}>
                       <span
                         ref={isActive ? activeWordRef : null}
-                        onClick={() => {
-                          if (audioRef.current) {
-                            audioRef.current.currentTime = word.start
-                            setCurrentTime(word.start)
-                            audioRef.current.play().catch(() => {})
-                          }
-                        }}
+                        onClick={() => seekAndPlay(word.start)}
                         className={`cursor-pointer transition-colors duration-150 px-0.5 rounded inline-block group/word relative ${isCut ? 'opacity-30 line-through decoration-red-500/50' : ''} ${
                           isActive
                             ? 'bg-blue-500/30 text-blue-300'

@@ -1,7 +1,11 @@
 import React from 'react'
 import { useStore } from '../store/useStore'
 
-export default function Header() {
+interface Props {
+  onSetup?: () => void
+}
+
+export default function Header({ onSetup }: Props) {
   const { mode, setMode, view, setView, status, canUndo, canRedo, undo, redo, clearFile, filePath } = useStore()
   const isReady = status === 'ready'
 
@@ -62,6 +66,15 @@ export default function Header() {
 
       {/* Undo / Redo — only in edit mode when ready */}
       <div className="flex items-center gap-2">
+        {onSetup && (
+          <button
+            onClick={onSetup}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1"
+            title="Setup / Dependencies"
+          >
+            ⚙
+          </button>
+        )}
         {isReady && mode === 'edit' && (
           <>
             <button

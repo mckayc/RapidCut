@@ -27,6 +27,7 @@ export interface TranscribeResult {
   words: Word[]
   duration: number
   text: string
+  audio_path: string
 }
 
 export function transcribeFile(filePath: string, model: string): Promise<TranscribeResult> {
@@ -41,7 +42,6 @@ export function analyzeFile(
   words: Word[],
   filePath: string,
   settings: Settings,
-  fillerWords: string[],
 ): Promise<AnalyzeResult> {
   return post('/analyze', {
     words,
@@ -49,12 +49,11 @@ export function analyzeFile(
     settings: {
       processingMode: settings.processingMode,
       removeNoSpeech: settings.removeNoSpeech,
-      removeFillerWords: settings.removeFillerWords,
+      removeFillerWords: false, // handled in frontend — never ask Python to cut filler words
       silenceThresholdDb: settings.silenceThresholdDb,
       preCutPaddingMs: settings.preCutPaddingMs,
       postCutPaddingMs: settings.postCutPaddingMs,
       minSilenceDurationMs: settings.minSilenceDurationMs,
-      fillerWords,
     },
   })
 }

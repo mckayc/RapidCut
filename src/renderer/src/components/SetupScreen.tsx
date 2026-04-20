@@ -93,9 +93,10 @@ function DepRow({ name, description, info, installState, installOutput, manualUr
 
 interface Props {
   onReady: () => void
+  fromMain?: boolean
 }
 
-export default function SetupScreen({ onReady }: Props) {
+export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const { setAvailableFonts } = useStore()
   const [deps, setDeps] = useState<DepsStatus | null>(null)
   const [checking, setChecking] = useState(true)
@@ -138,7 +139,7 @@ export default function SetupScreen({ onReady }: Props) {
   }, [onReady])
 
   useEffect(() => {
-    checkDeps(true) // auto-launch on first check if everything is ready
+    checkDeps(!fromMain) // auto-launch only when opened at startup, not from within the app
   }, [checkDeps])
 
   const allReady = deps?.python.available && deps?.ffmpeg.available
@@ -260,25 +261,37 @@ export default function SetupScreen({ onReady }: Props) {
 
         {/* Actions */}
         <div className="flex items-center justify-between">
-          <button
-            onClick={() => checkDeps(false)}
-            disabled={checking}
-            className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40 transition-colors"
-          >
-            {checking ? 'Checking…' : '↺ Re-check'}
-          </button>
+          <div className="flex items-center gap-3">
+            {fromMain && (
+              <button
+                onClick={onReady}
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                ← Back
+              </button>
+            )}
+            <button
+              onClick={() => checkDeps(false)}
+              disabled={checking}
+              className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40 transition-colors"
+            >
+              {checking ? 'Checking…' : '↺ Re-check'}
+            </button>
+          </div>
 
-          <button
-            onClick={handleLaunch}
-            disabled={!allReady || serverState === 'installing'}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shadow-lg"
-          >
-            {serverState === 'installing'
-              ? 'Starting…'
-              : allReady
-                ? 'Launch RapidCut →'
-                : 'Dependencies required'}
-          </button>
+          {!fromMain && (
+            <button
+              onClick={handleLaunch}
+              disabled={!allReady || serverState === 'installing'}
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shadow-lg"
+            >
+              {serverState === 'installing'
+                ? 'Starting…'
+                : allReady
+                  ? 'Launch RapidCut →'
+                  : 'Dependencies required'}
+            </button>
+          )}
         </div>
 
         {!deps?.python.available && !checking && (
