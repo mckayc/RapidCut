@@ -72,6 +72,13 @@ def check_deps():
     except ImportError as e:
         results["whisper"] = {"available": False, "error": str(e)}
 
+    # whisperx
+    try:
+        import whisperx  # noqa: F401
+        results["whisperx"] = {"available": True}
+    except ImportError as e:
+        results["whisperx"] = {"available": False, "error": str(e)}
+
     # pydub
     try:
         from pydub import AudioSegment  # noqa: F401
@@ -92,8 +99,14 @@ def check_deps():
 @app.post("/setup/install-pip")
 def install_pip_deps():
     """Re-install Python dependencies from requirements.txt."""
-    import os
-    req_path = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
+    # Look for requirements in the same directory as main.py for better reliability
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    req_path = os.path.join(base_dir, "requirements.txt")
+    
+    # Fallback to root if not found in python/
+    if not os.path.exists(req_path):
+        req_path = os.path.join(base_dir, "..", "requirements.txt")
+    
     req_path = os.path.normpath(req_path)
     try:
         result = subprocess.run(

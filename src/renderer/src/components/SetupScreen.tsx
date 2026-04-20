@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import type { DepInfo, DepsStatus } from '../types'
 
@@ -97,7 +97,7 @@ interface Props {
 }
 
 export default function SetupScreen({ onReady, fromMain = false }: Props) {
-  const { setAvailableFonts } = useStore()
+  const { setAvailableFonts, logs } = useStore()
   const [deps, setDeps] = useState<DepsStatus | null>(null)
   const [checking, setChecking] = useState(true)
 
@@ -108,8 +108,17 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const [ffmpegOutput, setFfmpegOutput] = useState('')
   const [ffmpegManual, setFfmpegManual] = useState<string | undefined>()
 
-  const [serverState, setServerState] = useState<InstallState>('idle')
-  const [serverError, setServerError] = useState('')
+  const [serverState, setServerState] = useState<InstallState>('idle') // State for the Python server itself
+  const [serverError, setServerError] = useState('') // Error message if server fails to start
+  const logEndRef = useRef<HTMLDivElement>(null)
+  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing' // Tracks if any installation is in progress
+
+  // Auto-scroll the terminal logs
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [logs])
 
   const checkDeps = useCallback(async (autoLaunch = false) => {
     setChecking(true)
@@ -121,7 +130,8 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
       const fonts = await window.electronAPI.getSystemFonts()
       setAvailableFonts(fonts)
 
-      if (autoLaunch && result.python.available && result.ffmpeg.available) {
+      // If all dependencies are available and we're in auto-launch mode, try to start the server
+      if (autoLaunch && result?.python?.available && result?.ffmpeg?.available && result?.whisperx?.available) {
         // All deps present — launch immediately without user interaction
         setServerState('installing')
         const serverResult = await window.electronAPI.startServer()
@@ -136,13 +146,13 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     } finally {
       setChecking(false)
     }
-  }, [onReady])
+  }, [onReady, pipState, ffmpegState]) // Added pipState and ffmpegState to deps for re-evaluation
 
   useEffect(() => {
     checkDeps(!fromMain) // auto-launch only when opened at startup, not from within the app
   }, [checkDeps])
 
-  const allReady = deps?.python.available && deps?.ffmpeg.available
+  const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.whisperx?.available)
 
   async function handleInstallPip() {
     setPipState('installing')
@@ -166,13 +176,13 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     }
   }
 
-  async function handleLaunch() {
+  async function handleLaunch() { // This handles the "Launch RapidCut" button
     setServerState('installing')
     setServerError('')
     const result = await window.electronAPI.startServer()
     if (result.success) {
       // Verify required Python packages are present
-      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow']
+      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow', 'whisperx'] // Added whisperx
       try {
         const res = await fetch('http://127.0.0.1:8765/setup/check')
         if (res.ok) {
@@ -202,7 +212,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-[#0f1117] px-8">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-lg flex flex-col h-full max-h-[85vh]">
         {/* Header */}
         <div className="mb-8 text-center">
           <h1 className="text-blue-400 font-bold text-2xl tracking-tight mb-1">RapidCut</h1>
@@ -222,17 +232,32 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
 
           <DepRow
             name="Python packages"
-            description="whisper, fastapi, pydub and other libraries"
+            description="faster-whisper, whisperx, pydub, fastapi, Pillow" // Updated description
             info={
               checking
                 ? null
-                : deps?.python.available
-                  ? { available: pipState === 'success' || (deps.python.available && pipState === 'idle') }
+                : deps?.python?.available
+                  ? { available: pipState === 'success' || (deps?.python?.available && pipState === 'idle') }
                   : { available: false }
             }
             installState={pipState}
             installOutput={pipOutput}
-            onInstall={deps?.python.available ? handleInstallPip : undefined}
+            onInstall={deps?.python?.available ? handleInstallPip : undefined}
+          />
+
+          <DepRow
+            name="WhisperX"
+            description="For highly accurate word-level timestamps"
+            info={
+              checking
+                ? null
+                : deps?.python?.available && deps?.whisperx?.available
+                  ? { available: true, version: deps?.whisperx?.version }
+                  : { available: false }
+            }
+            installState={pipState} // WhisperX is a pip package, so its install state is tied to pipState
+            installOutput={pipOutput}
+            onInstall={deps?.python?.available && !deps?.whisperx?.available ? handleInstallPip : undefined}
           />
 
           <DepRow
@@ -251,6 +276,24 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
             onInstall={!deps?.ffmpeg.available ? handleInstallFfmpeg : undefined}
           />
         </div>
+
+        {/* Activity Terminal */}
+        {(isWorking || serverState === 'error' || pipState === 'error') && ( // isWorking already includes pipState
+          <div className="flex-1 min-h-[150px] mb-5 bg-black/50 border border-gray-800 rounded-lg flex flex-col overflow-hidden font-mono text-[10px]">
+            <div className="px-3 py-1.5 bg-gray-800/50 border-b border-gray-800 flex justify-between items-center">
+              <span className="text-gray-500 uppercase tracking-widest font-bold">Activity Logs</span>
+              {isWorking && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap">
+              {logs.length === 0 ? (
+                <span className="text-gray-700 italic">Starting tasks...</span>
+              ) : (
+                logs.map((log, i) => <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>)
+              )}
+              <div ref={logEndRef} />
+            </div>
+          </div>
+        )}
 
         {/* Server error */}
         {serverState === 'error' && serverError && (

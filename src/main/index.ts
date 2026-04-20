@@ -14,7 +14,7 @@ let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
 // Cache for dependency status to speed up load times
-let cachedDeps: { python: any; ffmpeg: any } | null = null
+let cachedDeps: { python: any; ffmpeg: any; whisperx: any } | null = null
 
 // Register media protocol to allow loading local audio/video files
 protocol.registerSchemesAsPrivileged([
@@ -105,6 +105,15 @@ async function checkPython(): Promise<{ available: boolean; version?: string }> 
   }
 }
 
+async function checkWhisperX(): Promise<{ available: boolean }> {
+  try {
+    await execAsync(`${PYTHON_BIN} -c "import whisperx"`)
+    return { available: true }
+  } catch {
+    return { available: false }
+  }
+}
+
 async function checkFfmpeg(): Promise<{ available: boolean; version?: string }> {
   // 1. Try with known bin dirs already in env
   try {
@@ -134,15 +143,32 @@ async function installPipDeps(): Promise<{ success: boolean; output: string }> {
   const reqPath = app.isPackaged
     ? join(process.resourcesPath, 'requirements.txt')
     : join(__dirname, '../../requirements.txt')
-  try {
-    const { stdout, stderr } = await execAsync(
-      `${PIP_BIN} install -r "${reqPath}"`,
-      { timeout: 300_000 },
-    )
-    return { success: true, output: stdout + stderr }
-  } catch (err: unknown) {
-    return { success: false, output: String((err as { message?: string })?.message ?? err) }
-  }
+
+  return new Promise((resolve) => {
+    const child = spawn(`${PIP_BIN} install -r "${reqPath}"`, [], {
+      shell: process.platform === 'win32'
+    })
+    let output = ''
+
+    child.stdout.on('data', (data) => {
+      const str = data.toString()
+      output += str
+      mainWindow?.webContents.send('app-log', str)
+    })
+    child.stderr.on('data', (data) => {
+      const str = data.toString()
+      output += str
+      mainWindow?.webContents.send('app-log', `[ERR] ${str}`)
+    })
+
+    child.on('error', (err) => {
+      resolve({ success: false, output: err.message })
+    })
+
+    child.on('close', (code) => {
+      resolve({ success: code === 0, output })
+    })
+  })
 }
 
 async function installFfmpegWindows(): Promise<{ success: boolean; output: string; manual?: string }> {
@@ -246,23 +272,31 @@ async function spawnPythonServer(): Promise<void> {
     ? join(process.resourcesPath, 'python/main.py')
     : join(__dirname, '../../python/main.py')
   const ffmpegExe = await resolveFfmpegExe()
-  console.log(`[Main] Using ffmpeg: ${ffmpegExe}`)
-  pythonProcess = spawn(PYTHON_BIN, [scriptPath], {
+  mainWindow?.webContents.send('app-log', `[Main] Using ffmpeg: ${ffmpegExe}`)
+  pythonProcess = spawn(`${PYTHON_BIN} "${scriptPath}"`, [], {
     stdio: 'pipe',
+    shell: process.platform === 'win32',
     env: { ...envWithFfmpeg(), FFMPEG_PATH: ffmpegExe },
   })
-  pythonProcess.stdout?.on('data', (d) => process.stdout.write(`[Python] ${d}`))
-  pythonProcess.stderr?.on('data', (d) => process.stderr.write(`[Python] ${d}`))
+  pythonProcess.stdout?.on('data', (d) => mainWindow?.webContents.send('app-log', d.toString()))
+  pythonProcess.stderr?.on('data', (d) => mainWindow?.webContents.send('app-log', `[PY-ERR] ${d.toString()}`))
   pythonProcess.on('exit', (code) => {
-    console.log(`[Python] exited with code ${code}`)
+    const msg = `[Python] Process exited with code ${code}`
+    console.log(msg)
+    mainWindow?.webContents.send('app-log', `[FATAL] ${msg}`)
     pythonProcess = null
   })
 }
 
-async function waitForPython(maxWaitMs = 25_000): Promise<void> {
+async function waitForPython(maxWaitMs = 60_000): Promise<void> {
   const deadline = Date.now() + maxWaitMs
+  let attempts = 0
   while (Date.now() < deadline) {
     try {
+      attempts++
+      if (attempts % 10 === 0) {
+        mainWindow?.webContents.send('app-log', `[Main] Connection attempt ${attempts} to http://127.0.0.1:${PYTHON_PORT}...`)
+      }
       const res = await fetch(`http://127.0.0.1:${PYTHON_PORT}/health`)
       if (res.ok) return
     } catch {
@@ -281,13 +315,8 @@ async function startServer(): Promise<{ success: boolean; error?: string }> {
   }
   await killPortWin(PYTHON_PORT)
 
-  // Ensure Python packages are installed before spawning the server.
-  // This silently catches any install failures — the server will surface missing
-  // imports with a clear error message if something is still absent.
-  try {
-    await installPipDeps()
-  } catch {}
-
+  // Note: installPipDeps is now handled by the SetupScreen and doesn't run on every launch,
+  // which significantly speeds up the startup time.
   await spawnPythonServer()
   try {
     await waitForPython()
@@ -341,7 +370,9 @@ app.whenReady().then(() => {
 
   // Pre-flight check: Run dependency checks in the background as soon as the app starts
   // so the results are ready by the time the renderer window finishes loading.
-  Promise.all([checkPython(), checkFfmpeg()]).then(([p, f]) => { cachedDeps = { python: p, ffmpeg: f } })
+  Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()]).then(([p, f, w]) => {
+    cachedDeps = { python: p, ffmpeg: f, whisperx: w }
+  })
 
   createWindow()
   app.on('activate', () => {
@@ -366,9 +397,9 @@ ipcMain.handle('check-deps', async () => {
   // If we already have a cached result from pre-flight or a previous check, return it instantly
   if (cachedDeps) return cachedDeps
 
-  const [python, ffmpeg] = await Promise.all([checkPython(), checkFfmpeg()])
-  cachedDeps = { python, ffmpeg }
-  return { python, ffmpeg }
+  const [python, ffmpeg, whisperx] = await Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()])
+  cachedDeps = { python, ffmpeg, whisperx }
+  return { python, ffmpeg, whisperx }
 })
 
 ipcMain.handle('install-pip-deps', async () => {

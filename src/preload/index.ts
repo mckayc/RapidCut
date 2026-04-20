@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkDeps: (): Promise<{
     python: { available: boolean; version?: string }
     ffmpeg: { available: boolean; version?: string }
+    whisperx: { available: boolean }
   }> => ipcRenderer.invoke('check-deps'),
 
   installPipDeps: (): Promise<{ success: boolean; output: string }> =>
@@ -34,4 +35,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   getSystemFonts: (): Promise<Array<{ name: string; path: string }>> =>
     ipcRenderer.invoke('get-system-fonts'),
+
+  // Expose a method to listen for main process events
+  on: (channel: string, callback: (...args: any[]) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, ...args: any[]) => callback(...args)
+    ipcRenderer.on(channel, subscription)
+    return () => ipcRenderer.removeListener(channel, subscription)
+  },
 })

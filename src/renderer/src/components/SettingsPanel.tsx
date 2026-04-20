@@ -7,6 +7,9 @@ const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] =
   { value: 'base.en',          label: 'Base English (recommended)',         group: 'Whisper' },
   { value: 'small',            label: 'Small (better accuracy)',            group: 'Whisper' },
   { value: 'medium',           label: 'Medium (best accuracy)',             group: 'Whisper' },
+  { value: 'whisperx-base.en', label: 'WhisperX Base (Precise)',           group: 'WhisperX' },
+  { value: 'whisperx-small',   label: 'WhisperX Small (Highly Precise)',    group: 'WhisperX' },
+  { value: 'whisperx-medium',  label: 'WhisperX Medium (Best Precision)',   group: 'WhisperX' },
 ]
 
 // ─── Slider ──────────────────────────────────────────────────────────────────
@@ -408,6 +411,11 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
               >
                 <optgroup label="Whisper">
                   {WHISPER_MODELS.filter(m => m.group === 'Whisper').map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="WhisperX (High Precision Alignment)">
+                  {WHISPER_MODELS.filter(m => m.group === 'WhisperX').map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </optgroup>

@@ -34,12 +34,18 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
     try:
         if model_name not in _MODEL_CACHE:
             from faster_whisper import WhisperModel
-            _MODEL_CACHE[model_name] = WhisperModel(
-                model_name,
+            actual_model = model_name.replace("whisperx-", "")
+            _MODEL_CACHE[model_name] = {
+                "model": WhisperModel(
+                actual_model,
                 device="cpu",
                 compute_type="int8",
-            )
-        model = _MODEL_CACHE[model_name]
+                ),
+                "type": "whisperx" if model_name.startswith("whisperx-") else "standard"
+            }
+        
+        cache_entry = _MODEL_CACHE[model_name]
+        model = cache_entry["model"]
 
         segments, info = model.transcribe(
             audio_path,
@@ -63,15 +69,38 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
         )
 
         words = []
-        for segment in segments:
-            for word in segment.words or []:
-                text = word.word.strip()
-                if text:
+        if cache_entry["type"] == "whisperx":
+            import whisperx
+            # Convert generator to list of dicts for whisperx alignment
+            seg_list = []
+            for s in segments:
+                seg_list.append({"text": s.text, "start": s.start, "end": s.end})
+            
+            # Load alignment model (cached internally by whisperx)
+            device = "cpu"
+            model_a, metadata = whisperx.load_align_model(language_code=info.language, device=device)
+            
+            # Perform forced alignment
+            result = whisperx.align(seg_list, model_a, metadata, audio_path, device, return_char_alignments=False)
+            
+            for w in result["word_segments"]:
+                # Only include words that were successfully aligned
+                if "start" in w and "end" in w:
                     words.append({
-                        "word": text,
-                        "start": round(word.start, 3),
-                        "end": round(word.end, 3),
+                        "word": w["word"].strip(),
+                        "start": round(w["start"], 3),
+                        "end": round(w["end"], 3)
                     })
+        else:
+            for segment in segments:
+                for word in segment.words or []:
+                    text = word.word.strip()
+                    if text:
+                        words.append({
+                            "word": text,
+                            "start": round(word.start, 3),
+                            "end": round(word.end, 3),
+                        })
 
         duration = info.duration or (words[-1]["end"] if words else 0)
 

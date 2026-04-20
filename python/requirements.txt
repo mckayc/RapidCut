@@ -1,0 +1,6 @@
+faster-whisper
+whisperx
+pydub
+fastapi
+uvicorn
+Pillow

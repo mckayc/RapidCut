@@ -185,6 +185,12 @@ interface AppState {
   canUndo: () => boolean
   canRedo: () => boolean
 
+  // Logs & Terminal
+  logs: string[]
+  addLog: (log: string) => void
+  showTerminal: boolean
+  setShowTerminal: (show: boolean) => void
+
   // Derived
   getKeepSegments: () => Segment[]
   isWordCut: (index: number) => boolean
@@ -666,6 +672,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
   canUndo: () => get().historyIndex >= 0,
   canRedo: () => get().historyIndex < get().history.length - 1,
+
+  // ─── Logs & Terminal ────────────────────────────────────────────────────────
+
+  logs: [],
+  addLog: (log) => set((s) => ({ 
+    logs: [...s.logs.slice(-200), log] // Keep last 200 lines
+  })),
+  showTerminal: false,
+  setShowTerminal: (showTerminal) => set({ showTerminal }),
 
   // ─── Derived ─────────────────────────────────────────────────────────────────
 

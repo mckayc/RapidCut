@@ -31,11 +31,15 @@ export default function App() {
     setStatus,
     setWords,
     setCutRegions,
+    logs,
+    addLog,
+    showTerminal,
+    setShowTerminal
   } = useStore()
 
   const [showFillerManager, setShowFillerManager] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const { 
+  const {
     audioPath, 
     setCurrentTime, 
     setIsPlaying, 
@@ -47,6 +51,22 @@ export default function App() {
   const analyzeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsSaveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsLoaded = useRef(false)
+  const logEndRef = useRef<HTMLDivElement>(null)
+
+  // Listen for logs from main process
+  useEffect(() => {
+    const removeListener = window.electronAPI.on('app-log', (log: string) => {
+      addLog(log)
+    })
+    return () => removeListener()
+  }, [])
+
+  // Auto-scroll terminal
+  useEffect(() => {
+    if (showTerminal && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [logs, showTerminal])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -343,6 +363,35 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* Terminal Toggle Button */}
+      <button
+        onClick={() => setShowTerminal(!showTerminal)}
+        className="fixed bottom-4 right-4 z-50 p-2 bg-gray-800 border border-gray-700 rounded-full shadow-lg hover:bg-gray-700 transition-colors"
+        title="Toggle Background Logs"
+      >
+        <svg className={`w-5 h-5 ${showTerminal ? 'text-blue-400' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      </button>
+
+      {/* Background Terminal */}
+      {showTerminal && (
+        <div className="fixed bottom-16 right-4 w-96 h-64 bg-black/90 border border-gray-700 rounded-lg shadow-2xl z-50 flex flex-col overflow-hidden font-mono text-[10px]">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700">
+            <span className="text-gray-400 font-bold uppercase tracking-widest">Background Logs</span>
+            <button onClick={() => setShowTerminal(false)} className="text-gray-500 hover:text-white">✕</button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 whitespace-pre-wrap text-gray-300">
+            {logs.length === 0 ? (
+              <span className="text-gray-600 italic">No activity logs yet...</span>
+            ) : (
+              logs.map((log, i) => <div key={i} className="mb-0.5">{log}</div>)
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
 
       {showFillerManager && <FillerWordManager onClose={() => setShowFillerManager(false)} />}
     </div>
