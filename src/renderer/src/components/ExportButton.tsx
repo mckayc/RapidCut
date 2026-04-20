@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { exportXml } from '../api'
 
-export default function ExportButton() {
+interface Props {
+  onAnalyze?: () => void
+}
+
+export default function ExportButton({ onAnalyze }: Props) {
   const {
     filePath,
     fileName,
@@ -90,6 +94,15 @@ export default function ExportButton() {
           <span className="text-xs text-gray-500">
             {keepSegments.length} segment{keepSegments.length !== 1 ? 's' : ''} · {durationLabel}
           </span>
+        )}
+        {onAnalyze && (
+          <button
+            onClick={onAnalyze}
+            disabled={isExporting || status === 'transcribing' || status === 'analyzing'}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-blue-400 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 border border-blue-900/30 h-[38px]"
+          >
+            {status === 'analyzing' || status === 'transcribing' ? '...' : 'Analyze'}
+          </button>
         )}
         <button
           onClick={handleCopyForAI}

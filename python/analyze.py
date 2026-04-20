@@ -37,15 +37,11 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
 
     if processing_mode == "speech":
         if remove_filler and words:
-            # Extend each filler cut back to the previous word's end so the
-            # inter-word gap before the filler is included in the cut.  This
-            # prevents a phantom clip between the preceding speech and the filler.
             for i, word in enumerate(words):
                 if _normalize(word["word"]) in filler_set:
-                    cut_start = words[i - 1]["end"] if i > 0 else 0.0
                     cut_regions.append({
-                        "start": round(cut_start, 3),
-                        "end": round(word["end"] + 0.05, 3),
+                        "start": round(word["start"], 3),
+                        "end": round(word["end"], 3),
                         "reason": "filler_word",
                     })
 
@@ -56,34 +52,13 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
                 file_path, cut_regions, silence_thresh_db,
                 pre_padding_s, post_padding_s, min_silence_ms,
             )
-
-            # Use Whisper word boundaries to definitively cut leading and trailing
-            # content — pydub often misses the last few hundred ms of room noise.
-            if words:
-                duration = total_ms / 1000.0
-                first_start = words[0]["start"]
-                last_end = words[-1]["end"]
-                if first_start > post_padding_s:
-                    cut_regions.append({
-                        "start": 0.0,
-                        "end": round(first_start - post_padding_s, 3),
-                        "reason": "no_speech",
-                    })
-                if duration - last_end > pre_padding_s:
-                    cut_regions.append({
-                        "start": round(last_end + pre_padding_s, 3),
-                        "end": round(duration, 3),
-                        "reason": "no_speech",
-                    })
     else:
         _add_audio_silence_cuts(
             file_path, cut_regions, silence_thresh_db,
             pre_padding_s, post_padding_s, min_silence_ms,
         )
 
-    merged = _merge_regions(cut_regions)
-    merged = _close_small_gaps(merged, gap_ms=200)
-    return {"cut_regions": merged}
+    return {"cut_regions": cut_regions}
 
 
 def _group_speech_segments(words: List[Dict], merge_gap_s: float = 0.5) -> List[Dict]:
@@ -129,15 +104,12 @@ def _add_audio_silence_cuts(file_path, cut_regions, thresh_db, pre_s, post_s, mi
     total_ms = len(audio)
     silent_ranges = detect_silence(audio, min_silence_len=min_ms, silence_thresh=thresh_db)
     for start_ms, end_ms in silent_ranges:
-        # Don't add pre-padding for silence that starts at the very beginning of the file,
-        # and don't subtract post-padding for silence that ends at the very end — both
-        # cases would leave a tiny phantom kept segment with no speech to protect.
-        actual_pre = 0.0 if start_ms == 0 else pre_s
-        actual_post = 0.0 if end_ms >= total_ms else post_s
-        start = start_ms / 1000 + actual_pre
-        end = end_ms / 1000 - actual_post
-        if end > start:
-            cut_regions.append({"start": round(start, 3), "end": round(end, 3), "reason": "silence"})
+        # Return raw silence without padding; frontend will apply padding dynamically.
+        cut_regions.append({
+            "start": round(start_ms / 1000, 3),
+            "end": round(end_ms / 1000, 3),
+            "reason": "silence"
+        })
     return total_ms
 
 

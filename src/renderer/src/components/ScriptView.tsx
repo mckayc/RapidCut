@@ -21,7 +21,6 @@ export default function ScriptView() {
     settings,
   } = useStore()
   
-  const audioRef = useRef<HTMLAudioElement>(null)
   const activeWordRef = useRef<HTMLSpanElement>(null)
 
   // State for the title creation popover
@@ -37,6 +36,12 @@ export default function ScriptView() {
   
   // Track active word index to prevent jitter and redundant scrolls
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1)
+
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    audioRef.current = document.getElementById('global-audio-player') as HTMLAudioElement
+  }, [])
 
   // Sync playback speed
   useEffect(() => {
@@ -73,22 +78,17 @@ export default function ScriptView() {
   }, [activeWordIndex])
 
   const seekAndPlay = useCallback((time: number) => {
-    const audio = audioRef.current
+    const audio = document.getElementById('global-audio-player') as HTMLAudioElement
     if (!audio) return
     setCurrentTime(time)
-    const onSeeked = () => {
-      audio.removeEventListener('seeked', onSeeked)
-      audio.play().catch(() => {})
-    }
-    audio.addEventListener('seeked', onSeeked)
     audio.currentTime = time
+    audio.play().catch(() => {})
   }, [setCurrentTime])
 
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value)
-    if (audioRef.current) {
-      audioRef.current.currentTime = time
-    }
+    const audio = document.getElementById('global-audio-player') as HTMLAudioElement
+    if (audio) audio.currentTime = time
     setCurrentTime(time)
   }, [setCurrentTime])
 
@@ -128,18 +128,14 @@ export default function ScriptView() {
       <div className="sticky top-0 z-10 flex items-center gap-4 px-6 py-3 border-b border-gray-800 bg-[#1a1d27]/95 backdrop-blur-md flex-shrink-0">
         {audioPath ? (
           <>
-            <audio
-              ref={audioRef}
-              key={audioPath}
-              src={`media://load?path=${encodeURIComponent(audioPath)}`}
-              preload="auto"
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-            />
             <button 
-              onClick={() => audioRef.current?.paused ? audioRef.current.play() : audioRef.current?.pause()}
+              onClick={() => {
+                const a = document.getElementById('global-audio-player') as HTMLAudioElement
+                a?.paused ? a.play() : a?.pause()
+              }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg hover:scale-105 active:scale-95 flex-shrink-0"
             >
-              {audioRef.current?.paused ? (
+              {(document.getElementById('global-audio-player') as HTMLAudioElement)?.paused ? (
                 <svg className="w-3.5 h-3.5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
               ) : (
                 <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>

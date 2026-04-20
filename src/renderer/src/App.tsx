@@ -25,6 +25,8 @@ export default function App() {
     settings,
     presets,
     activePreset,
+    lastUsedModel,
+    setLastUsedModel,
     setFile,
     setStatus,
     setWords,
@@ -33,6 +35,15 @@ export default function App() {
 
   const [showFillerManager, setShowFillerManager] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const { 
+    audioPath, 
+    setCurrentTime, 
+    setIsPlaying, 
+    autoPlay, 
+    playbackStopAt, 
+    setPlaybackStopAt 
+  } = useStore()
+  
   const analyzeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsSaveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsLoaded = useRef(false)
@@ -100,40 +111,44 @@ export default function App() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const runAnalyze = useCallback(async () => {
-    const { filePath: fp, words } = useStore.getState()
+  const handleManualAnalyze = useCallback(async () => {
+    const { filePath: fp, words, settings, lastUsedModel } = useStore.getState()
     if (!fp) return
+
+    let currentWords = words
+    let currentDuration = useStore.getState().videoDuration
+
+    // Re-transcribe if model changed or if we have no words in speech mode
+    const needsTranscribe = settings.processingMode === 'speech' && 
+      (words.length === 0 || settings.whisperModel !== lastUsedModel)
+
+    if (needsTranscribe) {
+      setStatus('transcribing', 'Transcribing audio…')
+      const t0 = Date.now()
+      try {
+        const result = await transcribeFile(fp, settings.whisperModel)
+        useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
+        useStore.getState().setLastUsedModel(settings.whisperModel)
+        currentWords = result.words as Word[]
+        currentDuration = result.duration
+        setWords(currentWords, currentDuration, result.audio_path)
+      } catch (err) {
+        setStatus('error', err instanceof Error ? err.message : String(err))
+        return
+      }
+    }
+
     setStatus('analyzing', 'Analyzing…')
     try {
-      const result = await analyzeFile(words, fp, settings)
+      const result = await analyzeFile(currentWords, fp, settings)
       setCutRegions(result.cut_regions)
       setStatus('ready', '')
     } catch (err) {
       setStatus('error', err instanceof Error ? err.message : String(err))
     }
-  }, [settings.processingMode, settings.removeNoSpeech, settings.silenceThresholdDb, settings.preCutPaddingMs, settings.postCutPaddingMs, settings.minSilenceDurationMs])
+  }, [setWords, setCutRegions, setStatus])
 
-  // Re-analyze via Python only when silence-detection settings change.
-  // Filler words and repeated phrase detection are handled purely in the frontend store.
-  const pythonAnalysisKey = [
-    settings.processingMode,
-    settings.removeNoSpeech,
-    settings.silenceThresholdDb,
-    settings.preCutPaddingMs,
-    settings.postCutPaddingMs,
-    settings.minSilenceDurationMs,
-  ].join('|')
-
-  useEffect(() => {
-    if (status !== 'ready' && status !== 'analyzing') return
-    const { filePath: fp } = useStore.getState()
-    if (!fp) return
-    if (analyzeDebounce.current) clearTimeout(analyzeDebounce.current)
-    analyzeDebounce.current = setTimeout(runAnalyze, DEBOUNCE_MS)
-    return () => {
-      if (analyzeDebounce.current) clearTimeout(analyzeDebounce.current)
-    }
-  }, [pythonAnalysisKey])
+  // Auto-analysis removed. Users must now click "Analyze" in the sidebar.
 
   const handleFile = useCallback(
     async (fp: string, fn: string) => {
@@ -147,6 +162,7 @@ export default function App() {
         const t0 = Date.now()
         try {
           const result = await transcribeFile(fp, settings.whisperModel)
+          useStore.getState().setLastUsedModel(settings.whisperModel)
           useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
           words = result.words as Word[]
           duration = result.duration
@@ -297,10 +313,34 @@ export default function App() {
                 ) : (
                   <span />
                 )}
-                <ExportButton />
+                <ExportButton onAnalyze={handleManualAnalyze} />
               </div>
             </div>
           </>
+        )}
+      </div>
+
+      {/* Global Audio Player */}
+      <div className="hidden">
+        {audioPath && (
+          <audio
+            id="global-audio-player"
+            src={`media://load?path=${encodeURIComponent(audioPath)}`}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onTimeUpdate={(e) => {
+              const time = e.currentTarget.currentTime
+              setCurrentTime(time)
+
+              // Auto-stop logic: if auto-play is off and we reached the end of the intended segment
+              if (!autoPlay && playbackStopAt !== null && time >= playbackStopAt) {
+                const audio = e.currentTarget
+                audio.pause()
+                audio.currentTime = playbackStopAt // Snap to exact end
+                setPlaybackStopAt(null)
+              }
+            }}
+          />
         )}
       </div>
 

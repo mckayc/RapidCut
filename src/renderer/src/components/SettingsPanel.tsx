@@ -238,6 +238,13 @@ interface Props {
 export default function SettingsPanel({ showModelSelector = false, onOpenFillerManager }: Props) {
   const { settings, updateSettings, fillerWords, lastTranscribeDuration } = useStore()
 
+  const formatRunTime = (seconds: number | null) => {
+    if (seconds === null) return null
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
   function update<K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) {
     updateSettings({ [key]: value })
   }
@@ -415,7 +422,7 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
               </select>
               {lastTranscribeDuration !== null && (
                 <p className="text-xs text-gray-600 font-mono">
-                  Last run: {lastTranscribeDuration.toFixed(1)}s
+                  Last run: {formatRunTime(lastTranscribeDuration)}
                 </p>
               )}
             </div>

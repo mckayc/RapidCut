@@ -67,14 +67,18 @@ function WordChip({
   index: number
   isRepeat: boolean
 }) {
-  const { words, isWordCut, manualToggles, cutRegions } = useStore()
+  const { words, isWordCut, manualToggles, cutRegions, currentTime } = useStore()
   const { onWordMouseDown, onWordMouseEnter } = useContext(DragContext)
   const word = words[index]
   const cut = isWordCut(index)
   const override = manualToggles[index]
 
+  const isActive = currentTime >= word.start && currentTime <= word.end
+
   let chipClass = ''
   let title = word.word
+
+  const activeStyle = isActive ? 'ring-2 ring-blue-500 ring-inset z-10 !text-white' : ''
 
   if (override === 'keep') {
     chipClass = 'bg-green-600/20 text-green-300 border border-green-600/50'
@@ -104,7 +108,7 @@ function WordChip({
       onMouseDown={(e) => { e.preventDefault(); onWordMouseDown(index) }}
       onMouseEnter={() => onWordMouseEnter(index)}
       title={title}
-      className={`inline-block px-1.5 py-0.5 m-0.5 rounded text-sm cursor-pointer transition-all select-none ${chipClass}`}
+      className={`inline-block px-1.5 py-0.5 m-0.5 rounded text-sm cursor-pointer transition-all select-none ${chipClass} ${activeStyle} ${isActive ? 'underline decoration-2 underline-offset-4' : ''}`}
     >
       {word.word}
     </span>
@@ -128,7 +132,11 @@ const SentenceRow = React.memo(({
     addTimeCut,
     removeTimeCutsOverlapping,
     manualToggles,
-    manualTimeCuts
+    manualTimeCuts,
+    currentTime,
+    isPlaying,
+    autoPlay,
+    setPlaybackStopAt
   } = useStore()
 
   const cutCount = indices.filter((i) => isWordCut(i)).length
@@ -140,6 +148,7 @@ const SentenceRow = React.memo(({
 
   const sentenceStart = words[0].start
   const sentenceEnd = words[words.length - 1].end
+  const isCurrentSentence = currentTime >= sentenceStart && currentTime <= sentenceEnd
 
   const barColor = allCut
     ? 'bg-red-500'
@@ -150,6 +159,28 @@ const SentenceRow = React.memo(({
         : 'bg-yellow-500'
 
   const barTitle = hasRepeat && !allCut ? 'Contains possible repeated phrase — expand to review' : undefined
+
+  const { setCurrentTime } = useStore()
+
+  const handlePlaySentence = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const audio = document.getElementById('global-audio-player') as HTMLAudioElement
+    if (audio) {
+      if (isCurrentSentence && !audio.paused) {
+        audio.pause()
+      } else {
+        // If auto-play is off, tell the store where we want to stop
+        if (!autoPlay) {
+          setPlaybackStopAt(sentenceEnd)
+        } else {
+          setPlaybackStopAt(null)
+        }
+        audio.currentTime = sentenceStart
+        setCurrentTime(sentenceStart)
+        audio.play().catch(() => {})
+      }
+    }
+  }
 
   function cutSentence() {
     addTimeCut(sentenceStart, sentenceEnd)
@@ -166,6 +197,17 @@ const SentenceRow = React.memo(({
         className="flex items-start gap-2 px-2 py-1.5 cursor-pointer hover:bg-gray-800/30 group"
         onClick={() => setExpanded((e) => !e)}
       >
+        <button
+          onClick={handlePlaySentence}
+          className={`mt-1 p-1 hover:bg-blue-500/20 rounded text-blue-400 transition-all flex-shrink-0 ${isCurrentSentence && isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          title={isCurrentSentence && isPlaying ? "Pause" : "Play line"}
+        >
+          {isCurrentSentence && isPlaying ? (
+            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          )}
+        </button>
         <div
           className={`w-1 rounded-full flex-shrink-0 mt-1.5 ${barColor} ${hasRepeat && !allCut ? 'h-5' : 'h-4'}`}
           title={barTitle}
@@ -229,7 +271,9 @@ export default function TranscriptEditor() {
     videoDuration,
     settings,
     manualToggles,
-    manualTimeCuts
+    manualTimeCuts,
+    autoPlay,
+    setAutoPlay
   } = useStore()
 
   const keepSegments = useMemo(
@@ -316,9 +360,24 @@ export default function TranscriptEditor() {
           {repeatSpans.size > 0 && (
             <span className="text-amber-400">{repeatSpans.size} repeated words</span>
           )}
-          <span className="ml-auto text-gray-600 italic text-xs">
-            Click to expand · Drag words to cut/keep · Keep/Cut to bulk toggle
-          </span>
+          
+          <div className="ml-auto flex items-center gap-4">
+            <button 
+              onClick={() => setAutoPlay(!autoPlay)}
+              className={`flex items-center gap-2 px-2 py-1 rounded border transition-colors ${
+                autoPlay 
+                  ? 'bg-blue-600/10 border-blue-500/30 text-blue-400' 
+                  : 'bg-gray-800 border-gray-700 text-gray-500'
+              }`}
+              title="If on, audio keeps playing through the whole file. If off, it stops after each line played."
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${autoPlay ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`} />
+              Auto-play {autoPlay ? 'ON' : 'OFF'}
+            </button>
+            <span className="text-gray-600 italic">
+              Click to expand · Drag words to cut/keep
+            </span>
+          </div>
         </div>
 
         {/* Legend */}

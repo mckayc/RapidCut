@@ -89,6 +89,12 @@ interface AppState {
   audioPath: string | null
   videoDuration: number
   currentTime: number
+  isPlaying: boolean
+  autoPlay: boolean
+  playbackStopAt: number | null
+  setIsPlaying: (playing: boolean) => void
+  setAutoPlay: (autoPlay: boolean) => void
+  setPlaybackStopAt: (time: number | null) => void
   playbackSpeed: number
   setCurrentTime: (time: number) => void
   setPlaybackSpeed: (speed: number) => void
@@ -111,6 +117,10 @@ interface AppState {
   // Transcription timing
   lastTranscribeDuration: number | null
   setTranscribeDuration: (seconds: number) => void
+
+  // Track model used for last transcription to detect changes
+  lastUsedModel: string | null
+  setLastUsedModel: (model: string | null) => void
 
   // Cut regions from server
   cutRegions: CutRegion[]
@@ -185,12 +195,15 @@ function computeFrontendCuts(words: Word[], settings: Settings, fillerWords: str
   const norm = (w: string) => w.toLowerCase().replace(/[^\w]/g, '')
   const regions: CutRegion[] = []
 
+  const pre = settings.preCutPaddingMs / 1000
+  const post = settings.postCutPaddingMs / 1000
+
   if (settings.removeFillerWords && words.length) {
     const fillerSet = new Set(fillerWords.map(norm))
     for (let i = 0; i < words.length; i++) {
       if (fillerSet.has(norm(words[i].word))) {
-        const start = i > 0 ? words[i - 1].end : 0
-        regions.push({ start, end: words[i].end + 0.05, reason: 'filler_word' })
+        const start = (i > 0 ? words[i - 1].end : 0) + post
+        regions.push({ start, end: words[i].end - pre, reason: 'filler_word' })
       }
     }
   }
@@ -263,6 +276,12 @@ export const useStore = create<AppState>((set, get) => ({
   audioPath: null,
   currentTime: 0,
   playbackSpeed: 1,
+  isPlaying: false,
+  autoPlay: true,
+  playbackStopAt: null,
+  setIsPlaying: (isPlaying) => set({ isPlaying }),
+  setAutoPlay: (autoPlay) => set({ autoPlay }),
+  setPlaybackStopAt: (playbackStopAt) => set({ playbackStopAt }),
   videoDuration: 0,
   setFile: (filePath, fileName) => set({ filePath, fileName }),
   clearFile: () =>
@@ -273,6 +292,8 @@ export const useStore = create<AppState>((set, get) => ({
       videoDuration: 0,
       currentTime: 0,
       words: [],
+      isPlaying: false,
+      playbackStopAt: null,
       cutRegions: [],
       manualToggles: {},
       manualTimeCuts: [],
@@ -300,6 +321,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   lastTranscribeDuration: null,
   setTranscribeDuration: (seconds) => set({ lastTranscribeDuration: seconds }),
+
+  lastUsedModel: null,
+  setLastUsedModel: (lastUsedModel) => set({ lastUsedModel }),
 
   setCurrentTime: (currentTime) => set({ currentTime }),
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
@@ -646,7 +670,7 @@ export const useStore = create<AppState>((set, get) => ({
   // ─── Derived ─────────────────────────────────────────────────────────────────
 
   isWordCut: (index) => {
-    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts } = get()
+    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts, settings, videoDuration } = get()
     const word = words[index]
     if (!word) return false
     const override = manualToggles[index]
@@ -654,14 +678,52 @@ export const useStore = create<AppState>((set, get) => ({
     if (override === 'cut') return true
     if (manualTimeCuts.some((tc) => tc.start <= word.start && tc.end >= word.end)) return true
     if (frontendCutRegions.some((r) => r.start <= word.start && r.end >= word.end)) return true
-    return cutRegions.some((r) => r.start <= word.start && r.end >= word.end)
+
+    // Apply live padding to silence regions from Python
+    const pre = settings.preCutPaddingMs / 1000
+    const post = settings.postCutPaddingMs / 1000
+    return cutRegions.some((r) => {
+      const actualPre = r.start === 0 ? 0 : pre
+      const actualPost = r.end >= videoDuration ? 0 : post
+      const paddedStart = r.start + actualPre
+      const paddedEnd = r.end - actualPost
+      return paddedStart < word.end && paddedEnd > word.start
+    })
   },
 
   getKeepSegments: () => {
-    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts, videoDuration, isWordCut } = get()
+    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts, videoDuration, isWordCut, settings } = get()
     if (!videoDuration) return []
 
-    let effectiveCuts: CutRegion[] = [...cutRegions, ...frontendCutRegions]
+    const pre = settings.preCutPaddingMs / 1000
+    const post = settings.postCutPaddingMs / 1000
+
+    // 1. Start with Python silence cuts, applying live padding
+    let effectiveCuts: CutRegion[] = cutRegions.map(r => {
+      const actualPre = r.start === 0 ? 0 : pre
+      const actualPost = r.end >= videoDuration ? 0 : post
+      return {
+        ...r,
+        start: r.start + actualPre,
+        end: Math.max(r.start + actualPre, r.end - actualPost)
+      }
+    })
+
+    // 2. Add leading/trailing silence based on transcript bounds if in speech mode
+    if (settings.processingMode === 'speech' && settings.removeNoSpeech && words.length > 0) {
+      const firstStart = words[0].start
+      const lastEnd = words[words.length - 1].end
+      
+      if (firstStart > post) {
+        effectiveCuts.push({ start: 0, end: firstStart - post, reason: 'no_speech' })
+      }
+      if (videoDuration - lastEnd > pre) {
+        effectiveCuts.push({ start: lastEnd + pre, end: videoDuration, reason: 'no_speech' })
+      }
+    }
+
+    // 3. Add frontend cuts (fillers, repeats) and manual cuts
+    effectiveCuts = [...effectiveCuts, ...frontendCutRegions]
 
     // Apply time-range cuts (covers full sentence spans including inter-word gaps)
     for (const tc of manualTimeCuts) {
