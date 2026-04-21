@@ -382,8 +382,8 @@ export default function App() {
 
       {/* Terminal Toggle Button */}
       <button
-        onClick={() => setShowTerminal(!showTerminal)}
-        className="fixed bottom-4 right-4 z-50 p-2 bg-gray-800 border border-gray-700 rounded-full shadow-lg hover:bg-gray-700 transition-colors"
+        onClick={() => setShowTerminal((s) => !s)}
+        className="fixed bottom-4 left-4 z-50 p-2 bg-gray-800 border border-gray-700 rounded-full shadow-lg hover:bg-gray-700 transition-colors"
         title="Toggle Background Logs"
       >
         <svg className={`w-5 h-5 ${showTerminal ? 'text-blue-400' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
