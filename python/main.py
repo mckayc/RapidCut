@@ -93,6 +93,13 @@ def check_deps():
     except ImportError as e:
         results["pillow"] = {"available": False, "error": str(e)}
 
+    # silero-vad
+    try:
+        from silero_vad import load_silero_vad  # noqa: F401
+        results["silero_vad"] = {"available": True}
+    except ImportError as e:
+        results["silero_vad"] = {"available": False, "error": str(e)}
+
     return results
 
 

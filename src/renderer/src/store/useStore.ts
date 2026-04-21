@@ -191,6 +191,11 @@ interface AppState {
   showTerminal: boolean
   setShowTerminal: (show: boolean) => void
 
+  // Precomputed per-word cut status: 0=kept, 1=cut, 2=filler cut (orange)
+  // Excludes manualToggles — those are layered on top by isWordCut
+  wordBaseStatus: number[]
+  recomputeWordStatus: () => void
+
   // Derived
   getKeepSegments: () => Segment[]
   isWordCut: (index: number) => boolean
@@ -323,6 +328,52 @@ export const useStore = create<AppState>((set, get) => ({
   recomputeFrontendCuts: () => {
     const { words, settings, fillerWords } = get()
     set({ frontendCutRegions: computeFrontendCuts(words, settings, fillerWords) })
+    get().recomputeWordStatus()
+  },
+
+  wordBaseStatus: [],
+  recomputeWordStatus: () => {
+    const { words, cutRegions, frontendCutRegions, manualTimeCuts, settings, videoDuration } = get()
+    if (!words.length) { set({ wordBaseStatus: [] }); return }
+
+    const pre = settings.preCutPaddingMs / 1000
+    const post = settings.postCutPaddingMs / 1000
+
+    // Compute snapped silence regions once — O(N_cuts × N_words)
+    const snappedCuts: { start: number; end: number }[] = []
+    for (const r of cutRegions) {
+      if (r.reason === 'filler_word') continue
+      const paddedStart = r.start === 0 ? 0 : r.start + pre
+      const paddedEnd = r.end >= videoDuration ? videoDuration : r.end - post
+      if (paddedStart >= paddedEnd) continue
+      let snappedStart = paddedStart
+      for (const w of words) {
+        if (w.start < paddedStart && w.end > paddedStart) { snappedStart = w.end; break }
+      }
+      let snappedEnd = paddedEnd
+      for (let i = words.length - 1; i >= 0; i--) {
+        const w = words[i]
+        if (w.start < paddedEnd && w.end > paddedEnd) { snappedEnd = w.start; break }
+      }
+      if (snappedStart < snappedEnd) snappedCuts.push({ start: snappedStart, end: snappedEnd })
+    }
+
+    // Check each word once — O(N_words × N_cuts)
+    const status = words.map(word => {
+      if (manualTimeCuts.some(tc => tc.start <= word.start && tc.end >= word.end)) return 1
+      for (const r of cutRegions) {
+        if (r.reason === 'filler_word' && r.start <= word.start && r.end >= word.end) return 2
+      }
+      for (const r of frontendCutRegions) {
+        if (r.start <= word.start && r.end >= word.end) {
+          return r.reason === 'filler_word' ? 2 : 1
+        }
+      }
+      if (snappedCuts.some(r => word.start >= r.start && word.end <= r.end)) return 1
+      return 0
+    })
+
+    set({ wordBaseStatus: status })
   },
 
   lastTranscribeDuration: null,
@@ -335,7 +386,10 @@ export const useStore = create<AppState>((set, get) => ({
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
 
   cutRegions: [],
-  setCutRegions: (cutRegions) => set({ cutRegions }),
+  setCutRegions: (cutRegions) => {
+    set({ cutRegions })
+    get().recomputeWordStatus()
+  },
 
   manualToggles: {},
   manualTimeCuts: [],
@@ -396,6 +450,7 @@ export const useStore = create<AppState>((set, get) => ({
       history: newHistory,
       historyIndex: newHistory.length - 1,
     })
+    get().recomputeWordStatus()
   },
 
   removeTimeCutsOverlapping: (start, end) => {
@@ -415,6 +470,7 @@ export const useStore = create<AppState>((set, get) => ({
       history: newHistory,
       historyIndex: newHistory.length - 1,
     })
+    get().recomputeWordStatus()
   },
 
   clearToggles: () =>
@@ -685,46 +741,11 @@ export const useStore = create<AppState>((set, get) => ({
   // ─── Derived ─────────────────────────────────────────────────────────────────
 
   isWordCut: (index) => {
-    const { words, cutRegions, frontendCutRegions, manualToggles, manualTimeCuts, settings, videoDuration } = get()
-    const word = words[index]
-    if (!word) return false
+    const { wordBaseStatus, manualToggles } = get()
     const override = manualToggles[index]
     if (override === 'keep') return false
     if (override === 'cut') return true
-    if (manualTimeCuts.some((tc) => tc.start <= word.start && tc.end >= word.end)) return true
-    if (frontendCutRegions.some((r) => r.start <= word.start && r.end >= word.end)) return true
-
-    // Apply live padding + word-boundary snapping to silence regions from Python
-    const pre = settings.preCutPaddingMs / 1000
-    const post = settings.postCutPaddingMs / 1000
-    return cutRegions.some((r) => {
-      // Filler words are stored at exact word boundaries — use direct containment
-      if (r.reason === 'filler_word') {
-        return r.start <= word.start && r.end >= word.end
-      }
-
-      // Silence/no_speech: apply padding then snap boundaries to words
-      const paddedStart = r.start === 0 ? 0 : r.start + pre
-      const paddedEnd = r.end >= videoDuration ? videoDuration : r.end - post
-      if (paddedStart >= paddedEnd) return false
-
-      // Snap start: if a word straddles the padded boundary, move past it
-      let snappedStart = paddedStart
-      for (const w of words) {
-        if (w.start < paddedStart && w.end > paddedStart) { snappedStart = w.end; break }
-      }
-
-      // Snap end: if a word straddles the padded boundary, pull back before it
-      let snappedEnd = paddedEnd
-      for (let i = words.length - 1; i >= 0; i--) {
-        const w = words[i]
-        if (w.start < paddedEnd && w.end > paddedEnd) { snappedEnd = w.start; break }
-      }
-
-      if (snappedStart >= snappedEnd) return false
-      // Word is cut only if it sits fully within the snapped silence region
-      return word.start >= snappedStart && word.end <= snappedEnd
-    })
+    return (wordBaseStatus[index] ?? 0) > 0
   },
 
   getKeepSegments: () => {

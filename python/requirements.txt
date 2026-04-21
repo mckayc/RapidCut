@@ -4,3 +4,4 @@ pydub
 fastapi
 uvicorn
 Pillow
+silero-vad

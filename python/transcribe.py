@@ -18,6 +18,8 @@ except ImportError:
     WHISPERX_AVAILABLE = False
 
 _MODEL_CACHE: dict = {}
+_ALIGN_MODEL_CACHE: dict = {}  # keyed by f"{language}_{device}"
+
 
 def extract_audio(video_path: str) -> str:
     """Extract audio track from video to a temporary 16kHz mono WAV."""
@@ -42,9 +44,33 @@ def extract_audio(video_path: str) -> str:
     return tmp
 
 
-def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
+def transcribe_file(
+    file_path: str,
+    model_name: str = "base.en",
+    min_silence_duration_ms: int = 300,
+    min_speech_duration_ms: int = 100,
+) -> dict:
+    # Backwards compat: presets saved with the old "words-" prefix still work.
+    if model_name.startswith("words-"):
+        model_name = model_name.replace("words-", "")
+
+    is_whisperx = model_name.startswith("whisperx-")
+
     audio_path = extract_audio(file_path)
     try:
+        from vad import get_speech_segments, get_audio_duration_from_wav, extract_segment_to_wav
+
+        speech_segments = get_speech_segments(
+            audio_path,
+            min_silence_duration_ms=min_silence_duration_ms,
+            min_speech_duration_ms=min_speech_duration_ms,
+        )
+        duration = get_audio_duration_from_wav(audio_path)
+
+        if not speech_segments:
+            os.unlink(audio_path)
+            return {"words": [], "duration": round(duration, 3), "text": "", "audio_path": None}
+
         if model_name not in _MODEL_CACHE:
             from faster_whisper import WhisperModel
             actual_model = model_name.replace("whisperx-", "")
@@ -54,62 +80,80 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
                     device=DEVICE,
                     compute_type="float16" if DEVICE == "cuda" else "int8",
                 ),
-                "type": "whisperx" if model_name.startswith("whisperx-") else "standard"
+                "type": "whisperx" if is_whisperx else "standard",
             }
-        
+
         cache_entry = _MODEL_CACHE[model_name]
         model = cache_entry["model"]
 
-        segments, info = model.transcribe(
-            audio_path,
-            word_timestamps=True,
-            # Don't feed previous output back as a prompt — stops the LM from
-            # collapsing repeated words and false starts across segment boundaries.
-            condition_on_previous_text=False,
-            # Disable heuristic filters that cause Whisper to skip "repetitive" or "low quality" segments.
-            compression_ratio_threshold=None,
-            log_prob_threshold=None,
-            no_speech_threshold=0.1,
-            # Prime the decoder with a "disfluent" example. This trick forces the model to 
-            # expect and output stutters and repetitions rather than cleaning them up.
-            initial_prompt="Um, uh, I... I just, I just wanted to say. You know, so in order, in order to... transcribe everything exactly verbatim, including every stutter and repetition.",
-            # Disable VAD filter to ensure short disfluent fragments aren't skipped.
-            vad_filter=False,
-            # Higher beam size allows the model to consider more candidates, preventing it 
-            # from "settling" on a cleaned-up version of a sentence.
-            beam_size=10,
-            temperature=0,
-        )
+        # Transcribe each VAD speech segment independently.
+        # Giving Whisper a small isolated segment (instead of the full file) prevents
+        # it from skipping short disfluencies like isolated "and... and..." false starts.
+        seg_list = []  # for whisperx alignment: [{text, start, end}]
+        words: list = []
 
-        words = []
-        if cache_entry["type"] == "whisperx":
+        for seg in speech_segments:
+            seg_path = extract_segment_to_wav(audio_path, seg["start"], seg["end"])
+            try:
+                seg_out, _ = model.transcribe(
+                    seg_path,
+                    word_timestamps=True,
+                    compression_ratio_threshold=2.4,
+                    log_prob_threshold=-1.0,
+                    no_speech_threshold=0.3,
+                    temperature=[0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                    condition_on_previous_text=False,
+                    initial_prompt="Um, uh, you know, so, basically, literally, actually, right, okay, hmm, ah.",
+                    vad_filter=False,
+                    beam_size=5,
+                )
+
+                if is_whisperx:
+                    for s in seg_out:
+                        seg_list.append({
+                            "text": s.text,
+                            "start": round(s.start + seg["start"], 3),
+                            "end": round(s.end + seg["start"], 3),
+                        })
+                else:
+                    for segment in seg_out:
+                        for word in segment.words or []:
+                            text = word.word.strip()
+                            if text:
+                                words.append({
+                                    "word": text,
+                                    "start": round(word.start + seg["start"], 3),
+                                    "end": round(word.end + seg["start"], 3),
+                                })
+            finally:
+                if os.path.exists(seg_path):
+                    os.unlink(seg_path)
+
+        if is_whisperx:
             if not WHISPERX_AVAILABLE:
                 raise RuntimeError("whisperx is not installed. Please reinstall Python dependencies.")
-            language = info.language or "en"
-            seg_list = [{"text": s.text, "start": s.start, "end": s.end} for s in segments]
-            model_a, metadata = _whisperx.load_align_model(language_code=language, device=DEVICE)
-            result = _whisperx.align(seg_list, model_a, metadata, audio_path, DEVICE, return_char_alignments=False)
-            
+            if not seg_list:
+                return {"words": [], "duration": round(duration, 3), "text": "", "audio_path": audio_path}
+
+            # Detect language from the first segment text (faster-whisper info not available per-seg here)
+            # Fall back to "en" — acceptable since whisperx alignment is language-guided anyway.
+            language = "en"
+            align_key = f"{language}_{DEVICE}"
+            if align_key not in _ALIGN_MODEL_CACHE:
+                _ALIGN_MODEL_CACHE[align_key] = _whisperx.load_align_model(
+                    language_code=language, device=DEVICE
+                )
+            model_a, metadata = _ALIGN_MODEL_CACHE[align_key]
+            result = _whisperx.align(
+                seg_list, model_a, metadata, audio_path, DEVICE, return_char_alignments=False
+            )
             for w in result["word_segments"]:
-                # Only include words that were successfully aligned
                 if "start" in w and "end" in w:
                     words.append({
                         "word": w["word"].strip(),
                         "start": round(w["start"], 3),
-                        "end": round(w["end"], 3)
+                        "end": round(w["end"], 3),
                     })
-        else:
-            for segment in segments:
-                for word in segment.words or []:
-                    text = word.word.strip()
-                    if text:
-                        words.append({
-                            "word": text,
-                            "start": round(word.start, 3),
-                            "end": round(word.end, 3),
-                        })
-
-        duration = info.duration or (words[-1]["end"] if words else 0)
 
         return {
             "words": words,

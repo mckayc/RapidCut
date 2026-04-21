@@ -69,18 +69,20 @@ function WordChip({
   index: number
   isRepeat: boolean
 }) {
-  const { words, isWordCut, manualToggles, cutRegions } = useStore()
+  // Three targeted selectors — this chip only re-renders when ITS OWN values change
+  const word = useStore(s => s.words[index])
+  const baseStatus = useStore(s => s.wordBaseStatus[index] ?? 0)  // 0=kept, 1=cut, 2=filler
+  const override = useStore(s => s.manualToggles[index])
+  const isActive = useStore(s => !!word && s.currentTime >= word.start && s.currentTime <= word.end)
   const { onWordMouseDown, onWordMouseEnter } = useContext(DragContext)
-  const word = words[index]
-  const cut = isWordCut(index)
-  const override = manualToggles[index]
 
-  // Targeted selector: only re-renders this chip when it transitions active ↔ inactive
-  const isActive = useStore(s => s.currentTime >= word.start && s.currentTime <= word.end)
+  if (!word) return null
+
+  const cut = override === 'keep' ? false : override === 'cut' ? true : baseStatus > 0
+  const isFillerCut = cut && override === undefined && baseStatus === 2
 
   let chipClass = ''
   let title = word.word
-
   const activeStyle = isActive ? 'ring-2 ring-blue-500 ring-inset z-10 !text-white' : ''
 
   if (override === 'keep') {
@@ -90,8 +92,7 @@ function WordChip({
     chipClass = 'bg-red-600/30 text-red-300 border border-red-600/50 line-through'
     title += ' (manually cut)'
   } else if (cut) {
-    const region = cutRegions.find((r) => r.start <= word.start && r.end >= word.end)
-    if (region?.reason === 'filler_word') {
+    if (isFillerCut) {
       chipClass = 'bg-orange-500/20 text-orange-300 border border-orange-500/40 line-through'
       title += ' (filler word)'
     } else {
@@ -102,8 +103,7 @@ function WordChip({
     chipClass = 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
     title += ' (possible repeat — drag to cut)'
   } else {
-    chipClass =
-      'bg-gray-700/60 text-gray-200 border border-gray-600/40 hover:border-blue-500/60 hover:bg-gray-700'
+    chipClass = 'bg-gray-700/60 text-gray-200 border border-gray-600/40 hover:border-blue-500/60 hover:bg-gray-700'
   }
 
   return (
@@ -131,17 +131,21 @@ const SentenceRow = React.memo(({
 }) => {
   const [expanded, setExpanded] = useState(false)
   const {
-    isWordCut,
     addTimeCut,
     removeTimeCutsOverlapping,
-    manualToggles,
     manualTimeCuts,
     isPlaying,
     autoPlay,
     setPlaybackStopAt
   } = useStore()
 
-  const cutCount = indices.filter((i) => isWordCut(i)).length
+  // Targeted selector: re-renders only when this sentence's cut count changes
+  const cutCount = useStore(s =>
+    indices.filter(i => {
+      const o = s.manualToggles[i]
+      return o === 'keep' ? false : o === 'cut' ? true : (s.wordBaseStatus[i] ?? 0) > 0
+    }).length
+  )
   const total = indices.length
   const allCut = cutCount === total
   const noneCut = cutCount === 0

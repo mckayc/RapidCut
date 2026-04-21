@@ -30,6 +30,8 @@ export type WhisperModel =
   | 'whisperx-base.en'
   | 'whisperx-small'
   | 'whisperx-medium'
+  | 'words-tiny'
+  | 'words-base.en'
 
 export interface Settings {
   processingMode: ProcessingMode

@@ -25,8 +25,6 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
     remove_filler = settings.get("removeFillerWords", False)
     remove_no_speech = settings.get("removeNoSpeech", True)
     silence_thresh_db = int(settings.get("silenceThresholdDb", -40))
-    pre_padding_s = settings.get("preCutPaddingMs", 50) / 1000
-    post_padding_s = settings.get("postCutPaddingMs", 50) / 1000
     min_silence_ms = int(settings.get("minSilenceDurationMs", 300))
     filler_set = {
         _normalize(w)
@@ -35,9 +33,9 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
 
     cut_regions: List[Dict] = []
 
-    if processing_mode == "speech":
+    if processing_mode == "transcription":
         if remove_filler and words:
-            for i, word in enumerate(words):
+            for word in words:
                 if _normalize(word["word"]) in filler_set:
                     cut_regions.append({
                         "start": round(word["start"], 3),
@@ -45,18 +43,23 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
                         "reason": "filler_word",
                     })
 
-        if remove_no_speech:
-            # Whisper timestamps compress silence, making gap-based detection
-            # unreliable — use audio level detection for accurate silence removal.
-            total_ms = _add_audio_silence_cuts(
-                file_path, cut_regions, silence_thresh_db,
-                pre_padding_s, post_padding_s, min_silence_ms,
-            )
-    else:
-        _add_audio_silence_cuts(
-            file_path, cut_regions, silence_thresh_db,
-            pre_padding_s, post_padding_s, min_silence_ms,
-        )
+        if remove_no_speech and words:
+            _add_no_speech_cuts(words, cut_regions, min_silence_ms)
+
+    elif processing_mode == "speech":
+        from transcribe import extract_audio
+        from vad import get_speech_segments, speech_segments_to_cut_regions, get_audio_duration_from_wav
+        audio_path = extract_audio(file_path)
+        try:
+            segs = get_speech_segments(audio_path, min_silence_duration_ms=min_silence_ms)
+            dur = get_audio_duration_from_wav(audio_path)
+            cut_regions.extend(speech_segments_to_cut_regions(segs, dur, min_silence_ms))
+        finally:
+            if os.path.exists(audio_path):
+                os.unlink(audio_path)
+
+    else:  # audio_level
+        _add_audio_silence_cuts(file_path, cut_regions, silence_thresh_db, min_silence_ms)
 
     return {"cut_regions": cut_regions}
 
@@ -74,32 +77,26 @@ def _group_speech_segments(words: List[Dict], merge_gap_s: float = 0.5) -> List[
     return segs
 
 
-def _add_no_speech_cuts(words, cut_regions, pre_s, post_s, min_ms):
-    # Use the same threshold for grouping words into segments as for cutting gaps.
-    # This means the Minimum Gap Duration slider controls both between-sentence
-    # silences AND slow/deliberate pauses within a sentence.
+def _add_no_speech_cuts(words, cut_regions, min_ms):
+    """Add raw (unpadded) no-speech regions based on word timestamp gaps.
+    Padding is applied by the frontend dynamically."""
     segs = _group_speech_segments(words, merge_gap_s=min_ms / 1000)
     if not segs:
         return
 
-    # Leading silence before first speech segment
+    # Leading silence before first word
     if segs[0]["start"] * 1000 >= min_ms:
-        end = segs[0]["start"] - post_s
-        if end > 0:
-            cut_regions.append({"start": 0.0, "end": round(end, 3), "reason": "no_speech"})
+        cut_regions.append({"start": 0.0, "end": round(segs[0]["start"], 3), "reason": "no_speech"})
 
     # Gaps between speech segments
     for i in range(len(segs) - 1):
         gap_start = segs[i]["end"]
         gap_end = segs[i + 1]["start"]
         if (gap_end - gap_start) * 1000 >= min_ms:
-            start = gap_start + pre_s
-            end = gap_end - post_s
-            if end > start:
-                cut_regions.append({"start": round(start, 3), "end": round(end, 3), "reason": "no_speech"})
+            cut_regions.append({"start": round(gap_start, 3), "end": round(gap_end, 3), "reason": "no_speech"})
 
 
-def _add_audio_silence_cuts(file_path, cut_regions, thresh_db, pre_s, post_s, min_ms):
+def _add_audio_silence_cuts(file_path, cut_regions, thresh_db, min_ms):
     audio = AudioSegment.from_file(file_path)
     total_ms = len(audio)
     silent_ranges = detect_silence(audio, min_silence_len=min_ms, silence_thresh=thresh_db)
@@ -119,7 +116,6 @@ def _merge_regions(regions: List[Dict]) -> List[Dict]:
     sorted_r = sorted(regions, key=lambda r: r["start"])
     merged = [dict(sorted_r[0])]
     for r in sorted_r[1:]:
-        # Use a small epsilon (10ms) to bridge tiny gaps that would leave slivers
         if r["start"] <= merged[-1]["end"] + 0.01:
             merged[-1]["end"] = max(merged[-1]["end"], r["end"])
         else:
@@ -128,8 +124,7 @@ def _merge_regions(regions: List[Dict]) -> List[Dict]:
 
 
 def _close_small_gaps(regions: List[Dict], gap_ms: int = 100) -> List[Dict]:
-    """Merge adjacent cut regions separated by less than gap_ms.
-    Prevents tiny kept clips between consecutive filler word cuts or close no-speech cuts."""
+    """Merge adjacent cut regions separated by less than gap_ms."""
     if not regions:
         return []
     threshold = gap_ms / 1000

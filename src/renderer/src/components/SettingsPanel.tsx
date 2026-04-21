@@ -11,6 +11,8 @@ const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] =
   { value: 'whisperx-base.en', label: 'WhisperX Base (Precise)',           group: 'WhisperX' },
   { value: 'whisperx-small',   label: 'WhisperX Small (Highly Precise)',    group: 'WhisperX' },
   { value: 'whisperx-medium',  label: 'WhisperX Medium (Best Precision)',   group: 'WhisperX' },
+  { value: 'words-tiny',       label: 'Words Only - Tiny (max recall)',     group: 'Words Only' },
+  { value: 'words-base.en',    label: 'Words Only - Base (max recall)',     group: 'Words Only' },
 ]
 
 // ─── Slider ──────────────────────────────────────────────────────────────────
@@ -326,13 +328,7 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
             {settings.removeNoSpeech && (
               <div className="flex flex-col gap-3 pl-1">
                 <Slider
-                  label="Silence Threshold"
-                  value={settings.silenceThresholdDb}
-                  min={-70} max={-10} step={1} unit=" dB"
-                  onChange={(v) => update('silenceThresholdDb', v)}
-                />
-                <Slider
-                  label="Minimum Silence Duration"
+                  label="Minimum Gap Duration"
                   value={settings.minSilenceDurationMs}
                   min={100} max={2000} step={50} unit=" ms"
                   onChange={(v) => update('minSilenceDurationMs', v)}
@@ -417,6 +413,11 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
                 </optgroup>
                 <optgroup label="WhisperX (High Precision Alignment)">
                   {WHISPER_MODELS.filter(m => m.group === 'WhisperX').map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Words Only (Maximum Recall — no skipping)">
+                  {WHISPER_MODELS.filter(m => m.group === 'Words Only').map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </optgroup>
