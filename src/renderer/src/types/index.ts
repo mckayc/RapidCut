@@ -26,6 +26,10 @@ export type WhisperModel =
   | 'distil-small.en'
   | 'distil-medium.en'
   | 'distil-large-v3'
+  | 'whisperx-tiny'
+  | 'whisperx-base.en'
+  | 'whisperx-small'
+  | 'whisperx-medium'
 
 export interface Settings {
   processingMode: ProcessingMode
@@ -68,6 +72,7 @@ export interface DepInfo {
 export interface DepsStatus {
   python: DepInfo
   ffmpeg: DepInfo
+  whisperx: DepInfo
 }
 
 declare global {

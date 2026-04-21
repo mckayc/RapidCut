@@ -1,6 +1,8 @@
 fastapi>=0.109.0
 uvicorn>=0.27.0
-faster-whisper>=1.0.0
+faster-whisper
+whisperx
 pydub>=0.25.1
 ffmpeg-python>=0.2.0
-audioop-lts>=0.2.2  # Python 3.13+ backport for audioop (used by pydub)
+Pillow>=10.0.0
+audioop-lts>=0.2.2; python_version >= "3.13"

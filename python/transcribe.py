@@ -4,6 +4,19 @@ import os
 
 FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
 
+try:
+    import torch
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+except ImportError:
+    DEVICE = "cpu"
+
+try:
+    import whisperx as _whisperx
+    WHISPERX_AVAILABLE = True
+except ImportError:
+    _whisperx = None  # type: ignore
+    WHISPERX_AVAILABLE = False
+
 _MODEL_CACHE: dict = {}
 
 def extract_audio(video_path: str) -> str:
@@ -37,9 +50,9 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
             actual_model = model_name.replace("whisperx-", "")
             _MODEL_CACHE[model_name] = {
                 "model": WhisperModel(
-                actual_model,
-                device="cpu",
-                compute_type="int8",
+                    actual_model,
+                    device=DEVICE,
+                    compute_type="float16" if DEVICE == "cuda" else "int8",
                 ),
                 "type": "whisperx" if model_name.startswith("whisperx-") else "standard"
             }
@@ -70,18 +83,12 @@ def transcribe_file(file_path: str, model_name: str = "base.en") -> dict:
 
         words = []
         if cache_entry["type"] == "whisperx":
-            import whisperx
-            # Convert generator to list of dicts for whisperx alignment
-            seg_list = []
-            for s in segments:
-                seg_list.append({"text": s.text, "start": s.start, "end": s.end})
-            
-            # Load alignment model (cached internally by whisperx)
-            device = "cpu"
-            model_a, metadata = whisperx.load_align_model(language_code=info.language, device=device)
-            
-            # Perform forced alignment
-            result = whisperx.align(seg_list, model_a, metadata, audio_path, device, return_char_alignments=False)
+            if not WHISPERX_AVAILABLE:
+                raise RuntimeError("whisperx is not installed. Please reinstall Python dependencies.")
+            language = info.language or "en"
+            seg_list = [{"text": s.text, "start": s.start, "end": s.end} for s in segments]
+            model_a, metadata = _whisperx.load_align_model(language_code=language, device=DEVICE)
+            result = _whisperx.align(seg_list, model_a, metadata, audio_path, DEVICE, return_char_alignments=False)
             
             for w in result["word_segments"]:
                 # Only include words that were successfully aligned

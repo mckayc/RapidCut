@@ -8,13 +8,52 @@ import { pathToFileURL } from 'url'
 const execAsync = promisify(exec)
 const PYTHON_PORT = 8765
 const PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3'
-const PIP_BIN = process.platform === 'win32' ? 'pip' : 'pip3'
 
 let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
 // Cache for dependency status to speed up load times
 let cachedDeps: { python: any; ffmpeg: any; whisperx: any } | null = null
+
+// Resolves after venv is created and packages are installed (or failed)
+let venvInitPromise: Promise<void> | null = null
+
+// ─── Python 3.12 virtual environment ──────────────────────────────────────
+
+function getVenvDir(): string {
+  return app.isPackaged
+    ? join(app.getPath('userData'), 'python-venv')
+    : join(__dirname, '../../python/venv')
+}
+
+function getVenvPython(): string {
+  const base = getVenvDir()
+  return process.platform === 'win32'
+    ? join(base, 'Scripts', 'python.exe')
+    : join(base, 'bin', 'python3')
+}
+
+function getVenvPip(): string {
+  const base = getVenvDir()
+  return process.platform === 'win32'
+    ? join(base, 'Scripts', 'pip.exe')
+    : join(base, 'bin', 'pip3')
+}
+
+async function ensureVenv(): Promise<void> {
+  const venvPython = getVenvPython()
+  if (existsSync(venvPython)) return
+
+  mainWindow?.webContents.send('app-log', '[Main] Creating Python 3.12 virtual environment...')
+  const py3 = process.platform === 'win32' ? 'py -3.12' : 'python3.12'
+  await execAsync(`${py3} -m venv "${getVenvDir()}"`, { timeout: 60_000 })
+  mainWindow?.webContents.send('app-log', '[Main] Virtual environment created. Installing packages...')
+
+  const result = await installPipDeps()
+  if (!result.success) {
+    mainWindow?.webContents.send('app-log', '[Main] Package installation failed. Use the Install button to retry.')
+  }
+}
 
 // Register media protocol to allow loading local audio/video files
 protocol.registerSchemesAsPrivileged([
@@ -106,8 +145,10 @@ async function checkPython(): Promise<{ available: boolean; version?: string }> 
 }
 
 async function checkWhisperX(): Promise<{ available: boolean }> {
+  const venvPython = getVenvPython()
+  if (!existsSync(venvPython)) return { available: false }
   try {
-    await execAsync(`${PYTHON_BIN} -c "import whisperx"`)
+    await execAsync(`"${venvPython}" -c "import whisperx"`, { timeout: 15_000 })
     return { available: true }
   } catch {
     return { available: false }
@@ -143,9 +184,10 @@ async function installPipDeps(): Promise<{ success: boolean; output: string }> {
   const reqPath = app.isPackaged
     ? join(process.resourcesPath, 'requirements.txt')
     : join(__dirname, '../../requirements.txt')
+  const pip = getVenvPip()
 
   return new Promise((resolve) => {
-    const child = spawn(`${PIP_BIN} install -r "${reqPath}"`, [], {
+    const child = spawn(`"${pip}" install --no-compile -r "${reqPath}"`, [], {
       shell: process.platform === 'win32'
     })
     let output = ''
@@ -272,8 +314,9 @@ async function spawnPythonServer(): Promise<void> {
     ? join(process.resourcesPath, 'python/main.py')
     : join(__dirname, '../../python/main.py')
   const ffmpegExe = await resolveFfmpegExe()
+  const venvPython = getVenvPython()
   mainWindow?.webContents.send('app-log', `[Main] Using ffmpeg: ${ffmpegExe}`)
-  pythonProcess = spawn(`${PYTHON_BIN} "${scriptPath}"`, [], {
+  pythonProcess = spawn(`"${venvPython}" "${scriptPath}"`, [], {
     stdio: 'pipe',
     shell: process.platform === 'win32',
     env: { ...envWithFfmpeg(), FFMPEG_PATH: ffmpegExe },
@@ -368,13 +411,18 @@ app.whenReady().then(() => {
     }
   })
 
-  // Pre-flight check: Run dependency checks in the background as soon as the app starts
-  // so the results are ready by the time the renderer window finishes loading.
-  Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()]).then(([p, f, w]) => {
-    cachedDeps = { python: p, ffmpeg: f, whisperx: w }
-  })
-
   createWindow()
+
+  // Ensure venv exists and packages are installed, then cache dep results.
+  // check-deps IPC awaits this before returning so the UI always sees final state.
+  venvInitPromise = ensureVenv()
+    .then(async () => {
+      const [p, f, w] = await Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()])
+      cachedDeps = { python: p, ffmpeg: f, whisperx: w }
+    })
+    .catch((err: unknown) => {
+      mainWindow?.webContents.send('app-log', `[Main] Auto-setup error: ${err}`)
+    })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -394,17 +442,20 @@ app.on('quit', () => {
 // ─── IPC ──────────────────────────────────────────────────────────────────
 
 ipcMain.handle('check-deps', async () => {
-  // If we already have a cached result from pre-flight or a previous check, return it instantly
+  // Wait for venv init (no-op if already resolved)
+  if (venvInitPromise) await venvInitPromise
   if (cachedDeps) return cachedDeps
 
   const [python, ffmpeg, whisperx] = await Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()])
   cachedDeps = { python, ffmpeg, whisperx }
-  return { python, ffmpeg, whisperx }
+  return cachedDeps
 })
 
 ipcMain.handle('install-pip-deps', async () => {
+  // Ensure venv exists before installing (handles manual retry after first-run failure)
+  await ensureVenv().catch(() => {})
   const res = await installPipDeps()
-  if (res.success) cachedDeps = null // Force re-check after install
+  if (res.success) cachedDeps = null
   return res
 })
 ipcMain.handle('install-ffmpeg', async () => {

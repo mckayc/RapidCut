@@ -77,6 +77,13 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
         e.preventDefault()
         useStore.getState().redo()
+      } else if (e.key === ' ' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault()
+        const audio = document.getElementById('global-audio-player') as HTMLAudioElement | null
+        if (audio) {
+          if (audio.paused) audio.play().catch(() => {})
+          else audio.pause()
+        }
       }
     }
     window.addEventListener('keydown', handler)
@@ -142,6 +149,8 @@ export default function App() {
     const needsTranscribe = settings.processingMode === 'speech' && 
       (words.length === 0 || settings.whisperModel !== lastUsedModel)
 
+    let analyzeTarget = useStore.getState().audioPath || fp
+
     if (needsTranscribe) {
       setStatus('transcribing', 'Transcribing audio…')
       const t0 = Date.now()
@@ -152,6 +161,7 @@ export default function App() {
         currentWords = result.words as Word[]
         currentDuration = result.duration
         setWords(currentWords, currentDuration, result.audio_path)
+        analyzeTarget = result.audio_path
       } catch (err) {
         setStatus('error', err instanceof Error ? err.message : String(err))
         return
@@ -160,7 +170,7 @@ export default function App() {
 
     setStatus('analyzing', 'Analyzing…')
     try {
-      const result = await analyzeFile(currentWords, fp, settings)
+      const result = await analyzeFile(currentWords, analyzeTarget, settings)
       setCutRegions(result.cut_regions)
       setStatus('ready', '')
     } catch (err) {
@@ -176,6 +186,7 @@ export default function App() {
 
       let words: { word: string; start: number; end: number }[] = []
       let duration = 0
+      let analyzeAudioPath = fp
 
       if (settings.processingMode === 'speech') {
         setStatus('transcribing', 'Transcribing audio…')
@@ -187,6 +198,7 @@ export default function App() {
           words = result.words as Word[]
           duration = result.duration
           setWords(words, duration, result.audio_path)
+          analyzeAudioPath = result.audio_path
         } catch (err) {
           setStatus('error', err instanceof Error ? err.message : String(err))
           return
@@ -205,7 +217,7 @@ export default function App() {
 
       setStatus('analyzing', 'Analyzing…')
       try {
-        const analysis = await analyzeFile(words, fp, settings)
+        const analysis = await analyzeFile(words, analyzeAudioPath, settings)
         setCutRegions(analysis.cut_regions)
 
         if (mode === 'auto') {

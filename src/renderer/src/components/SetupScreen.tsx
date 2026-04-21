@@ -277,23 +277,21 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
           />
         </div>
 
-        {/* Activity Terminal */}
-        {(isWorking || serverState === 'error' || pipState === 'error') && ( // isWorking already includes pipState
-          <div className="flex-1 min-h-[150px] mb-5 bg-black/50 border border-gray-800 rounded-lg flex flex-col overflow-hidden font-mono text-[10px]">
+        {/* Activity Terminal — always visible so the user can see what's happening */}
+        <div className="flex-1 min-h-[150px] mb-5 bg-black/50 border border-gray-800 rounded-lg flex flex-col overflow-hidden font-mono text-[10px]">
             <div className="px-3 py-1.5 bg-gray-800/50 border-b border-gray-800 flex justify-between items-center">
               <span className="text-gray-500 uppercase tracking-widest font-bold">Activity Logs</span>
-              {isWorking && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
+              {(checking || isWorking) && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
             </div>
             <div className="flex-1 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap">
               {logs.length === 0 ? (
-                <span className="text-gray-700 italic">Starting tasks...</span>
+                <span className="text-gray-700 italic">{checking ? 'Setting up environment…' : 'No activity yet.'}</span>
               ) : (
                 logs.map((log, i) => <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>)
               )}
               <div ref={logEndRef} />
             </div>
           </div>
-        )}
 
         {/* Server error */}
         {serverState === 'error' && serverError && (

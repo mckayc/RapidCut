@@ -273,7 +273,8 @@ export default function TranscriptEditor() {
     manualToggles,
     manualTimeCuts,
     autoPlay,
-    setAutoPlay
+    setAutoPlay,
+    isPlaying
   } = useStore()
 
   const keepSegments = useMemo(
@@ -362,11 +363,24 @@ export default function TranscriptEditor() {
           )}
           
           <div className="ml-auto flex items-center gap-4">
-            <button 
+            {isPlaying && (
+              <button
+                onClick={() => {
+                  const audio = document.getElementById('global-audio-player') as HTMLAudioElement | null
+                  audio?.pause()
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-blue-500/50 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 transition-colors"
+                title="Pause (Space)"
+              >
+                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                Pause
+              </button>
+            )}
+            <button
               onClick={() => setAutoPlay(!autoPlay)}
               className={`flex items-center gap-2 px-2 py-1 rounded border transition-colors ${
-                autoPlay 
-                  ? 'bg-blue-600/10 border-blue-500/30 text-blue-400' 
+                autoPlay
+                  ? 'bg-blue-600/10 border-blue-500/30 text-blue-400'
                   : 'bg-gray-800 border-gray-700 text-gray-500'
               }`}
               title="If on, audio keeps playing through the whole file. If off, it stops after each line played."

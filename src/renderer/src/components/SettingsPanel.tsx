@@ -7,6 +7,7 @@ const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] =
   { value: 'base.en',          label: 'Base English (recommended)',         group: 'Whisper' },
   { value: 'small',            label: 'Small (better accuracy)',            group: 'Whisper' },
   { value: 'medium',           label: 'Medium (best accuracy)',             group: 'Whisper' },
+  { value: 'whisperx-tiny',    label: 'WhisperX Tiny (fastest)',            group: 'WhisperX' },
   { value: 'whisperx-base.en', label: 'WhisperX Base (Precise)',           group: 'WhisperX' },
   { value: 'whisperx-small',   label: 'WhisperX Small (Highly Precise)',    group: 'WhisperX' },
   { value: 'whisperx-medium',  label: 'WhisperX Medium (Best Precision)',   group: 'WhisperX' },
@@ -298,16 +299,16 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
             onChange={(v) => update('minSilenceDurationMs', v)}
           />
           <Slider
-            label="Pre-cut Padding"
-            value={settings.preCutPaddingMs}
-            min={0} max={500} step={10} unit=" ms"
-            onChange={(v) => update('preCutPaddingMs', v)}
-          />
-          <Slider
-            label="Post-cut Padding"
+            label="Clip Start Padding"
             value={settings.postCutPaddingMs}
             min={0} max={500} step={10} unit=" ms"
             onChange={(v) => update('postCutPaddingMs', v)}
+          />
+          <Slider
+            label="Clip End Padding"
+            value={settings.preCutPaddingMs}
+            min={0} max={500} step={10} unit=" ms"
+            onChange={(v) => update('preCutPaddingMs', v)}
           />
         </div>
       )}
@@ -337,16 +338,16 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
                   onChange={(v) => update('minSilenceDurationMs', v)}
                 />
                 <Slider
-                  label="Pre-cut Padding"
-                  value={settings.preCutPaddingMs}
-                  min={0} max={500} step={10} unit=" ms"
-                  onChange={(v) => update('preCutPaddingMs', v)}
-                />
-                <Slider
-                  label="Post-cut Padding"
+                  label="Clip Start Padding"
                   value={settings.postCutPaddingMs}
                   min={0} max={500} step={10} unit=" ms"
                   onChange={(v) => update('postCutPaddingMs', v)}
+                />
+                <Slider
+                  label="Clip End Padding"
+                  value={settings.preCutPaddingMs}
+                  min={0} max={500} step={10} unit=" ms"
+                  onChange={(v) => update('preCutPaddingMs', v)}
                 />
               </div>
             )}

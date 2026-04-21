@@ -208,8 +208,8 @@ function computeFrontendCuts(words: Word[], settings: Settings, fillerWords: str
     const fillerSet = new Set(fillerWords.map(norm))
     for (let i = 0; i < words.length; i++) {
       if (fillerSet.has(norm(words[i].word))) {
-        const start = (i > 0 ? words[i - 1].end : 0) + post
-        regions.push({ start, end: words[i].end - pre, reason: 'filler_word' })
+        const start = (i > 0 ? words[i - 1].end : 0) + pre
+        regions.push({ start, end: words[i].end - post, reason: 'filler_word' })
       }
     }
   }
@@ -694,23 +694,36 @@ export const useStore = create<AppState>((set, get) => ({
     if (manualTimeCuts.some((tc) => tc.start <= word.start && tc.end >= word.end)) return true
     if (frontendCutRegions.some((r) => r.start <= word.start && r.end >= word.end)) return true
 
-    // Apply live padding to silence regions from Python
+    // Apply live padding + word-boundary snapping to silence regions from Python
     const pre = settings.preCutPaddingMs / 1000
     const post = settings.postCutPaddingMs / 1000
     return cutRegions.some((r) => {
-      const actualPre = r.start === 0 ? 0 : pre
-      const actualPost = r.end >= videoDuration ? 0 : post
-      const paddedStart = r.start + (r.start === 0 ? 0 : pre)
-      const paddedEnd = r.end - (r.end >= videoDuration ? 0 : post)
+      // Filler words are stored at exact word boundaries — use direct containment
+      if (r.reason === 'filler_word') {
+        return r.start <= word.start && r.end >= word.end
+      }
 
-      const wordDuration = word.end - word.start
-      const overlapStart = Math.max(word.start, paddedStart)
-      const overlapEnd = Math.min(word.end, paddedEnd)
-      const overlapDuration = Math.max(0, overlapEnd - overlapStart)
-      
-      // Only cut if the silence region covers more than 50% of the word.
-      // This protects words from being "clipped" by silence-detection padding.
-      return (overlapDuration / wordDuration) > 0.5
+      // Silence/no_speech: apply padding then snap boundaries to words
+      const paddedStart = r.start === 0 ? 0 : r.start + pre
+      const paddedEnd = r.end >= videoDuration ? videoDuration : r.end - post
+      if (paddedStart >= paddedEnd) return false
+
+      // Snap start: if a word straddles the padded boundary, move past it
+      let snappedStart = paddedStart
+      for (const w of words) {
+        if (w.start < paddedStart && w.end > paddedStart) { snappedStart = w.end; break }
+      }
+
+      // Snap end: if a word straddles the padded boundary, pull back before it
+      let snappedEnd = paddedEnd
+      for (let i = words.length - 1; i >= 0; i--) {
+        const w = words[i]
+        if (w.start < paddedEnd && w.end > paddedEnd) { snappedEnd = w.start; break }
+      }
+
+      if (snappedStart >= snappedEnd) return false
+      // Word is cut only if it sits fully within the snapped silence region
+      return word.start >= snappedStart && word.end <= snappedEnd
     })
   },
 
@@ -721,37 +734,36 @@ export const useStore = create<AppState>((set, get) => ({
     const pre = settings.preCutPaddingMs / 1000
     const post = settings.postCutPaddingMs / 1000
 
-    // 1. Start with Python silence cuts, applying live padding and snapping to words
+    // 1. Start with Python cuts, applying live padding and snapping silence to word boundaries
     let effectiveCuts: CutRegion[] = cutRegions.map(r => {
       const actualPre = r.start === 0 ? 0 : pre
       const actualPost = r.end >= videoDuration ? 0 : post
-      let pStart = r.start + actualPre
-      let pEnd = r.end - actualPost
 
-      // Word-Aware Snapping:
-      // Ensure that cut regions (silence) do not overlap with words that are supposed to be kept.
-      if (settings.processingMode === 'speech') {
-        words.forEach(w => {
-          const wordIdx = words.indexOf(w)
-          if (!get().isWordCut(wordIdx)) {
-            // If the cut region overlaps the start of a "keep" word, snap cut end to the word's start
-            if (pEnd > w.start && pStart < w.start) {
-              pEnd = w.start
-            }
-            // If the cut region overlaps the end of a "keep" word, snap cut start to the word's end
-            if (pStart < w.end && pEnd > w.end) {
-              pStart = w.end
-            }
-          }
-        })
+      // Filler words are stored at exact word boundaries; just apply padding as before
+      if (r.reason === 'filler_word') {
+        return { ...r, start: r.start + actualPre, end: Math.max(r.start + actualPre, r.end - actualPost) }
       }
 
-      return {
-        ...r,
-        start: pStart,
-        end: Math.max(pStart, pEnd)
+      // Silence/no_speech: apply padding then snap to word boundaries
+      const paddedStart = r.start + actualPre
+      const paddedEnd = r.end - actualPost
+
+      // Snap start forward past any word that straddles the padded boundary
+      let snappedStart = paddedStart
+      for (const w of words) {
+        if (w.start < paddedStart && w.end > paddedStart) { snappedStart = w.end; break }
       }
-    })
+
+      // Snap end backward before any word that straddles the padded boundary
+      let snappedEnd = paddedEnd
+      for (let i = words.length - 1; i >= 0; i--) {
+        const w = words[i]
+        if (w.start < paddedEnd && w.end > paddedEnd) { snappedEnd = w.start; break }
+      }
+
+      if (snappedStart >= snappedEnd) return null
+      return { ...r, start: snappedStart, end: snappedEnd }
+    }).filter((r): r is CutRegion => r !== null)
 
     // 2. Add leading/trailing silence based on transcript bounds if in speech mode
     if (settings.processingMode === 'speech' && settings.removeNoSpeech && words.length > 0) {
