@@ -30,8 +30,16 @@ export interface TranscribeResult {
   audio_path: string
 }
 
-export function transcribeFile(filePath: string, model: string): Promise<TranscribeResult> {
-  return post('/transcribe', { file_path: filePath, model })
+export function transcribeFile(
+  filePath: string,
+  model: string,
+  vadSettings?: { minSilenceDurationMs: number }
+): Promise<TranscribeResult> {
+  return post('/transcribe', {
+    file_path: filePath,
+    model,
+    min_silence_duration_ms: vadSettings?.minSilenceDurationMs ?? 300
+  })
 }
 
 export interface AnalyzeResult {

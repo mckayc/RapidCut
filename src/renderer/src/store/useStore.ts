@@ -16,7 +16,7 @@ export const DEFAULT_FILLER_WORDS = [
 ]
 
 export const DEFAULT_SETTINGS: Settings = {
-  processingMode: 'audio_level',
+  processingMode: 'transcription',
   removeNoSpeech: true,
   removeFillerWords: false,
   silenceThresholdDb: -40,
@@ -756,7 +756,7 @@ export const useStore = create<AppState>((set, get) => ({
     const post = settings.postCutPaddingMs / 1000
 
     // 1. Start with Python cuts, applying live padding and snapping silence to word boundaries
-    let effectiveCuts: CutRegion[] = cutRegions.map(r => {
+    let effectiveCuts: CutRegion[] = (cutRegions || []).map(r => {
       const actualPre = r.start === 0 ? 0 : pre
       const actualPost = r.end >= videoDuration ? 0 : post
 
@@ -787,7 +787,7 @@ export const useStore = create<AppState>((set, get) => ({
     }).filter((r): r is CutRegion => r !== null)
 
     // 2. Add leading/trailing silence based on transcript bounds if in speech mode
-    if (settings.processingMode === 'speech' && settings.removeNoSpeech && words.length > 0) {
+    if (settings.processingMode === 'transcription' && settings.removeNoSpeech && words.length > 0) {
       const firstStart = words[0].start
       const lastEnd = words[words.length - 1].end
       

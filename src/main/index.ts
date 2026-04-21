@@ -12,8 +12,8 @@ const PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3'
 let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
-// Cache for dependency status to speed up load times
-let cachedDeps: { python: any; ffmpeg: any; whisperx: any } | null = null
+// Cache for dependency status to speed up load times. Includes faster_whisper.
+let cachedDeps: { python: any; ffmpeg: any; whisperx: any; silero_vad: any; faster_whisper: any } | null = null
 
 // Resolves after venv is created and packages are installed (or failed)
 let venvInitPromise: Promise<void> | null = null
@@ -144,11 +144,33 @@ async function checkPython(): Promise<{ available: boolean; version?: string }> 
   }
 }
 
+async function checkFasterWhisper(): Promise<{ available: boolean }> {
+  const venvPython = getVenvPython()
+  if (!existsSync(venvPython)) return { available: false }
+  try {
+    await execAsync(`"${venvPython}" -c "from faster_whisper import WhisperModel"`, { timeout: 15_000 })
+    return { available: true }
+  } catch {
+    return { available: false }
+  }
+}
+
 async function checkWhisperX(): Promise<{ available: boolean }> {
   const venvPython = getVenvPython()
   if (!existsSync(venvPython)) return { available: false }
   try {
     await execAsync(`"${venvPython}" -c "import whisperx"`, { timeout: 15_000 })
+    return { available: true }
+  } catch {
+    return { available: false }
+  }
+}
+
+async function checkSileroVad(): Promise<{ available: boolean }> {
+  const venvPython = getVenvPython()
+  if (!existsSync(venvPython)) return { available: false }
+  try {
+    await execAsync(`"${venvPython}" -c "from silero_vad import load_silero_vad"`, { timeout: 15_000 })
     return { available: true }
   } catch {
     return { available: false }
@@ -417,8 +439,14 @@ app.whenReady().then(() => {
   // check-deps IPC awaits this before returning so the UI always sees final state.
   venvInitPromise = ensureVenv()
     .then(async () => {
-      const [p, f, w] = await Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()])
-      cachedDeps = { python: p, ffmpeg: f, whisperx: w }
+      const [p, f, w, v, fw] = await Promise.all([
+        checkPython(),
+        checkFfmpeg(),
+        checkWhisperX(),
+        checkSileroVad(),
+        checkFasterWhisper()
+      ])
+      cachedDeps = { python: p, ffmpeg: f, whisperx: w, silero_vad: v, faster_whisper: fw }
     })
     .catch((err: unknown) => {
       mainWindow?.webContents.send('app-log', `[Main] Auto-setup error: ${err}`)
@@ -446,8 +474,14 @@ ipcMain.handle('check-deps', async () => {
   if (venvInitPromise) await venvInitPromise
   if (cachedDeps) return cachedDeps
 
-  const [python, ffmpeg, whisperx] = await Promise.all([checkPython(), checkFfmpeg(), checkWhisperX()])
-  cachedDeps = { python, ffmpeg, whisperx }
+  const [python, ffmpeg, whisperx, silero_vad, faster_whisper] = await Promise.all([
+    checkPython(),
+    checkFfmpeg(),
+    checkWhisperX(),
+    checkSileroVad(),
+    checkFasterWhisper()
+  ])
+  cachedDeps = { python, ffmpeg, whisperx, silero_vad, faster_whisper }
   return cachedDeps
 })
 

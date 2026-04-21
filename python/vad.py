@@ -1,6 +1,7 @@
 import os
 import tempfile
 import wave
+import torch
 
 _VAD_MODEL = None
 
@@ -19,9 +20,18 @@ def get_speech_segments(
     min_speech_duration_ms: int = 100,
 ) -> list:
     """Run Silero VAD on a 16kHz mono WAV. Returns [{"start": float, "end": float}] in seconds."""
-    from silero_vad import read_audio, get_speech_timestamps
+    from silero_vad import get_speech_timestamps
+    from pydub import AudioSegment
+    import numpy as np
+
     model = _get_model()
-    wav = read_audio(audio_path, sampling_rate=16000)
+
+    # Use pydub to load audio instead of silero_vad.read_audio to avoid torchaudio backend errors.
+    # We force 16kHz, mono, 16-bit for Silero VAD compatibility.
+    audio = AudioSegment.from_file(audio_path).set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
+    wav = torch.from_numpy(samples)
+
     raw = get_speech_timestamps(
         wav, model,
         sampling_rate=16000,

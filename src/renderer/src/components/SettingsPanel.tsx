@@ -11,8 +11,6 @@ const WHISPER_MODELS: { value: WhisperModel; label: string; group?: string }[] =
   { value: 'whisperx-base.en', label: 'WhisperX Base (Precise)',           group: 'WhisperX' },
   { value: 'whisperx-small',   label: 'WhisperX Small (Highly Precise)',    group: 'WhisperX' },
   { value: 'whisperx-medium',  label: 'WhisperX Medium (Best Precision)',   group: 'WhisperX' },
-  { value: 'words-tiny',       label: 'Words Only - Tiny (max recall)',     group: 'Words Only' },
-  { value: 'words-base.en',    label: 'Words Only - Base (max recall)',     group: 'Words Only' },
 ]
 
 // ─── Slider ──────────────────────────────────────────────────────────────────
@@ -264,7 +262,7 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
           Mode
         </span>
         <div className="flex gap-2">
-          {(['audio_level', 'speech'] as ProcessingMode[]).map((m) => (
+          {(['audio_level', 'speech', 'transcription'] as ProcessingMode[]).map((m) => (
             <button
               key={m}
               onClick={() => update('processingMode', m)}
@@ -274,14 +272,16 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
                   : 'bg-gray-700 text-gray-400 hover:text-gray-200'
               }`}
             >
-              {m === 'audio_level' ? 'Audio Level' : 'Speech'}
+              {m === 'audio_level' ? 'Audio' : m === 'speech' ? 'Speech' : 'Script'}
             </button>
           ))}
         </div>
         <p className="text-xs text-gray-600">
           {isAudioLevel
             ? 'Cuts regions below the dB threshold — no transcription needed'
-            : 'Uses Whisper transcript to remove non-speech and filler words'}
+            : isSpeech
+              ? 'Uses VAD to detect and remove non-speech silences — no transcription'
+              : 'Transcribes audio and allows editing the script directly'}
         </p>
       </div>
 
@@ -315,8 +315,35 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
         </div>
       )}
 
-      {/* Speech settings */}
+      {/* Speech mode settings (VAD only) */}
       {isSpeech && (
+        <div className="flex flex-col gap-3">
+          <Slider
+            label="Minimum Gap Duration"
+            value={settings.minSilenceDurationMs}
+            min={100} max={2000} step={50} unit=" ms"
+            onChange={(v) => update('minSilenceDurationMs', v)}
+          />
+          <Slider
+            label="Clip Start Padding"
+            value={settings.postCutPaddingMs}
+            min={0} max={500} step={10} unit=" ms"
+            onChange={(v) => update('postCutPaddingMs', v)}
+          />
+          <Slider
+            label="Clip End Padding"
+            value={settings.preCutPaddingMs}
+            min={0} max={500} step={10} unit=" ms"
+            onChange={(v) => update('preCutPaddingMs', v)}
+          />
+          <p className="text-xs text-gray-600 italic">
+            Silero VAD automatically detects speech. Adjust gap duration to define how much silence triggers a cut.
+          </p>
+        </div>
+      )}
+
+      {/* Speech settings */}
+      {settings.processingMode === 'transcription' && (
         <div className="flex flex-col gap-4">
           {/* Remove no-speech toggle */}
           <div className="flex flex-col gap-2">
@@ -413,11 +440,6 @@ export default function SettingsPanel({ showModelSelector = false, onOpenFillerM
                 </optgroup>
                 <optgroup label="WhisperX (High Precision Alignment)">
                   {WHISPER_MODELS.filter(m => m.group === 'WhisperX').map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Words Only (Maximum Recall — no skipping)">
-                  {WHISPER_MODELS.filter(m => m.group === 'Words Only').map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </optgroup>

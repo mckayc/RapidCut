@@ -20,7 +20,7 @@ function StatusIcon({ info, state }: { info: DepInfo | null; state: InstallState
       <span className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin inline-block" />
     )
   }
-  if (state === 'success' || info?.available) {
+  if (info?.available) {
     return <span className="text-green-400 text-lg">✓</span>
   }
   if (info !== null && !info.available) {
@@ -32,7 +32,7 @@ function StatusIcon({ info, state }: { info: DepInfo | null; state: InstallState
 function DepRow({ name, description, info, installState, installOutput, manualUrl, onInstall }: DepRowProps) {
   const [showOutput, setShowOutput] = useState(false)
   const missing = info !== null && !info.available
-  const done = installState === 'success' || info?.available
+  const done = info?.available
 
   return (
     <div className="flex flex-col gap-2 py-4 border-b border-gray-800 last:border-0">
@@ -131,7 +131,12 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
       setAvailableFonts(fonts)
 
       // If all dependencies are available and we're in auto-launch mode, try to start the server
-      if (autoLaunch && result?.python?.available && result?.ffmpeg?.available && result?.whisperx?.available) {
+      if (
+        autoLaunch &&
+        result?.python?.available &&
+        result?.ffmpeg?.available &&
+        result?.silero_vad?.available
+      ) {
         // All deps present — launch immediately without user interaction
         setServerState('installing')
         const serverResult = await window.electronAPI.startServer()
@@ -152,7 +157,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     checkDeps(!fromMain) // auto-launch only when opened at startup, not from within the app
   }, [checkDeps])
 
-  const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.whisperx?.available)
+  const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.silero_vad?.available)
 
   async function handleInstallPip() {
     setPipState('installing')
@@ -182,7 +187,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     const result = await window.electronAPI.startServer()
     if (result.success) {
       // Verify required Python packages are present
-      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow', 'whisperx'] // Added whisperx
+      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow', 'whisperx', 'silero_vad']
       try {
         const res = await fetch('http://127.0.0.1:8765/setup/check')
         if (res.ok) {
@@ -232,7 +237,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
 
           <DepRow
             name="Python packages"
-            description="faster-whisper, whisperx, pydub, fastapi, Pillow" // Updated description
+            description="faster-whisper, whisperx, pydub, fastapi, Pillow, silero-vad"
             info={
               checking
                 ? null
@@ -243,6 +248,21 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
             installState={pipState}
             installOutput={pipOutput}
             onInstall={deps?.python?.available ? handleInstallPip : undefined}
+          />
+
+          <DepRow
+            name="Silero VAD"
+            description="Voice Activity Detection engine"
+            info={
+              checking
+                ? null
+                : deps?.python?.available && deps?.silero_vad?.available
+                  ? { available: true, version: deps?.silero_vad?.version }
+                  : { available: false }
+            }
+            installState={pipState}
+            installOutput={pipOutput}
+            onInstall={deps?.python?.available && !deps?.silero_vad?.available ? handleInstallPip : undefined}
           />
 
           <DepRow

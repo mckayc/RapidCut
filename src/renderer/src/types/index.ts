@@ -15,7 +15,7 @@ export interface Segment {
   end: number
 }
 
-export type ProcessingMode = 'audio_level' | 'speech'
+export type ProcessingMode = 'audio_level' | 'speech' | 'transcription'
 
 export type WhisperModel =
   | 'tiny'
@@ -30,8 +30,6 @@ export type WhisperModel =
   | 'whisperx-base.en'
   | 'whisperx-small'
   | 'whisperx-medium'
-  | 'words-tiny'
-  | 'words-base.en'
 
 export interface Settings {
   processingMode: ProcessingMode
@@ -75,6 +73,7 @@ export interface DepsStatus {
   python: DepInfo
   ffmpeg: DepInfo
   whisperx: DepInfo
+  silero_vad: DepInfo
 }
 
 declare global {

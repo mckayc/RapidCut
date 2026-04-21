@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     python: { available: boolean; version?: string }
     ffmpeg: { available: boolean; version?: string }
     whisperx: { available: boolean }
+    silero_vad: { available: boolean }
   }> => ipcRenderer.invoke('check-deps'),
 
   installPipDeps: (): Promise<{ success: boolean; output: string }> =>

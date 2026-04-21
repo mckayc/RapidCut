@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import sys
 import uvicorn
+from pydub import AudioSegment
 
 from transcribe import transcribe_file
 from analyze import analyze
@@ -34,6 +35,10 @@ def _ffprobe_path() -> str:
         if os.path.exists(probe):
             return probe
     return "ffprobe"
+
+# Configure pydub to use the managed ffmpeg path
+AudioSegment.converter = _FFMPEG
+AudioSegment.ffprobe = _ffprobe_path()
 
 app = FastAPI(title="RapidCut API")
 
@@ -157,12 +162,16 @@ def probe_endpoint(req: ProbeRequest):
 class TranscribeRequest(BaseModel):
     file_path: str
     model: str = "base.en"
+    min_silence_duration_ms: int = 300
+    min_speech_duration_ms: int = 100
 
 
 @app.post("/transcribe")
 def transcribe_endpoint(req: TranscribeRequest):
     try:
-        return transcribe_file(req.file_path, req.model)
+        return transcribe_file(req.file_path, req.model,
+            min_silence_duration_ms=req.min_silence_duration_ms,
+            min_speech_duration_ms=req.min_speech_duration_ms)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

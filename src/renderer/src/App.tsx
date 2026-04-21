@@ -146,7 +146,7 @@ export default function App() {
     let currentDuration = useStore.getState().videoDuration
 
     // Re-transcribe if model changed or if we have no words in speech mode
-    const needsTranscribe = settings.processingMode === 'speech' && 
+    const needsTranscribe = settings.processingMode === 'transcription' && 
       (words.length === 0 || settings.whisperModel !== lastUsedModel)
 
     let analyzeTarget = useStore.getState().audioPath || fp
@@ -155,7 +155,9 @@ export default function App() {
       setStatus('transcribing', 'Transcribing audio…')
       const t0 = Date.now()
       try {
-        const result = await transcribeFile(fp, settings.whisperModel)
+        const result = await transcribeFile(fp, settings.whisperModel, {
+          minSilenceDurationMs: settings.minSilenceDurationMs
+        })
         useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
         useStore.getState().setLastUsedModel(settings.whisperModel)
         currentWords = result.words as Word[]
@@ -188,11 +190,13 @@ export default function App() {
       let duration = 0
       let analyzeAudioPath = fp
 
-      if (settings.processingMode === 'speech') {
+      if (settings.processingMode === 'transcription') {
         setStatus('transcribing', 'Transcribing audio…')
         const t0 = Date.now()
         try {
-          const result = await transcribeFile(fp, settings.whisperModel)
+          const result = await transcribeFile(fp, settings.whisperModel, {
+            minSilenceDurationMs: settings.minSilenceDurationMs
+          })
           useStore.getState().setLastUsedModel(settings.whisperModel)
           useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
           words = result.words as Word[]
@@ -277,13 +281,13 @@ export default function App() {
         {isIdle && (
           <>
             <aside className="w-64 flex-shrink-0 border-r border-gray-800 overflow-y-auto bg-[#1a1d27]">
-              <div className="px-4 pt-3 pb-1">
+              <div className="px-4 pt-4 pb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Settings
                 </span>
               </div>
               <SettingsPanel
-                showModelSelector={settings.processingMode === 'speech'}
+                showModelSelector={settings.processingMode === 'transcription'}
                 onOpenFillerManager={() => setShowFillerManager(true)}
               />
             </aside>
@@ -318,13 +322,13 @@ export default function App() {
         {isReady && (
           <>
             <aside className="w-64 flex-shrink-0 border-r border-gray-800 overflow-y-auto bg-[#1a1d27]">
-              <div className="px-4 pt-3 pb-1">
+              <div className="px-4 pt-4 pb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Settings
                 </span>
               </div>
               <SettingsPanel
-                showModelSelector={settings.processingMode === 'speech'}
+                showModelSelector={settings.processingMode === 'transcription'}
                 onOpenFillerManager={() => setShowFillerManager(true)}
               />
             </aside>
