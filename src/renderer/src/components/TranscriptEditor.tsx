@@ -12,8 +12,10 @@ function normalizeWord(w: string): string {
   return w.toLowerCase().replace(/[^\w]/g, '')
 }
 
-// Detect spans of ≥4 consecutive words that appear more than once within a window
-function findRepeatSpans(words: Word[], minLen = 4, window = 80): Set<number> {
+// Detect spans of ≥3 consecutive words that appear again within a short proximity window.
+// Window is intentionally small so only true retakes (immediate restarts) are flagged,
+// not natural repetitions of common phrases scattered across the transcript.
+function findRepeatSpans(words: Word[], minLen = 3, window = 20): Set<number> {
   const hits = new Set<number>()
   for (let i = 0; i < words.length - minLen; i++) {
     const phrase = words.slice(i, i + minLen).map((w) => normalizeWord(w.word)).join(' ')
@@ -67,13 +69,14 @@ function WordChip({
   index: number
   isRepeat: boolean
 }) {
-  const { words, isWordCut, manualToggles, cutRegions, currentTime } = useStore()
+  const { words, isWordCut, manualToggles, cutRegions } = useStore()
   const { onWordMouseDown, onWordMouseEnter } = useContext(DragContext)
   const word = words[index]
   const cut = isWordCut(index)
   const override = manualToggles[index]
 
-  const isActive = currentTime >= word.start && currentTime <= word.end
+  // Targeted selector: only re-renders this chip when it transitions active ↔ inactive
+  const isActive = useStore(s => s.currentTime >= word.start && s.currentTime <= word.end)
 
   let chipClass = ''
   let title = word.word
@@ -133,7 +136,6 @@ const SentenceRow = React.memo(({
     removeTimeCutsOverlapping,
     manualToggles,
     manualTimeCuts,
-    currentTime,
     isPlaying,
     autoPlay,
     setPlaybackStopAt
@@ -148,7 +150,8 @@ const SentenceRow = React.memo(({
 
   const sentenceStart = words[0].start
   const sentenceEnd = words[words.length - 1].end
-  const isCurrentSentence = currentTime >= sentenceStart && currentTime <= sentenceEnd
+  // Targeted selector: only re-renders this row when it transitions current ↔ not-current
+  const isCurrentSentence = useStore(s => s.currentTime >= sentenceStart && s.currentTime <= sentenceEnd)
 
   const barColor = allCut
     ? 'bg-red-500'
