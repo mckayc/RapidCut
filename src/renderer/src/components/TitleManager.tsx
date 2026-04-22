@@ -22,6 +22,15 @@ export default function TitleManager() {
   const [isDragging, setIsDragging] = useState<'move' | 'resize' | null>(null)
   const [canvasHeight, setCanvasHeight] = useState(0)
 
+  // Ensure fonts are loaded if someone lands directly on this page
+  useEffect(() => {
+    if (availableFonts.length === 0) {
+      window.electronAPI.getSystemFonts().then(fonts => {
+        useStore.getState().setAvailableFonts(fonts)
+      })
+    }
+  }, [availableFonts])
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -182,7 +191,15 @@ export default function TitleManager() {
                     className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-gray-200 outline-none focus:border-blue-500"
                   >
                     <option value="">Default Sans-Serif</option>
-                    {availableFonts.map(f => <option key={f.path} value={f.path}>{f.name}</option>)}
+                    {availableFonts.map(f => (
+                      <option 
+                        key={f.path} 
+                        value={f.path}
+                        style={{ fontFamily: `"${f.name}"` }}
+                      >
+                        {f.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex gap-4">
@@ -201,6 +218,28 @@ export default function TitleManager() {
                     </select>
                   </div>
                 </div>
+
+                <div className="flex gap-6 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedTemplate.uppercase}
+                      onChange={e => updateTemplate(selectedTemplate.id, { uppercase: e.target.checked })}
+                      className="rounded border-gray-700 bg-gray-800 text-blue-600"
+                    />
+                    <span className="text-xs font-medium text-gray-300">All Caps</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedTemplate.fadeInOut}
+                      onChange={e => updateTemplate(selectedTemplate.id, { fadeInOut: e.target.checked })}
+                      className="rounded border-gray-700 bg-gray-800 text-blue-600"
+                    />
+                    <span className="text-xs font-medium text-gray-300">Fade In/Out</span>
+                  </label>
+                </div>
+
                 {/* Drop Shadow */}
                 <div className="space-y-3 pt-1">
                   <label className="flex items-center gap-2 cursor-pointer">

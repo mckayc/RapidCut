@@ -50,6 +50,8 @@ export interface TitleTemplate {
   aiPrompt: string
   isDynamic: boolean
   shadowEnabled: boolean
+  uppercase: boolean
+  fadeInOut: boolean
   shadowColor: string
   shadowBlur: number
   shadowOffsetX: number
@@ -546,6 +548,8 @@ export const useStore = create<AppState>((set, get) => ({
       isDynamic: true,
       aiPrompt: 'Please summarize and create titles for the following transcript:',
       shadowEnabled: false,
+      uppercase: false,
+      fadeInOut: true,
       shadowColor: '#000000',
       shadowBlur: 4,
       shadowOffsetX: 3,
@@ -585,6 +589,8 @@ export const useStore = create<AppState>((set, get) => ({
       isDynamic: true,
       aiPrompt: 'Please summarize and create titles for the following transcript:',
       shadowEnabled: false,
+      uppercase: false,
+      fadeInOut: true,
       shadowColor: '#000000',
       shadowBlur: 4,
       shadowOffsetX: 3,

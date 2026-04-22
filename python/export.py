@@ -100,7 +100,7 @@ def build_xml(
     sequence_name: str = "RapidCut Export",
 ) -> str:
     abs_path = os.path.abspath(file_path).replace("\\", "/")
-    file_uri = "file:///" + quote(abs_path.lstrip("/"))
+    file_uri = "file:///" + quote(abs_path, safe="/")
     base_name = os.path.basename(file_path)
     uid = hashlib.md5(abs_path.encode()).hexdigest().upper()
 
@@ -146,18 +146,13 @@ def build_xml(
     if rendered_titles:
         for i, t in enumerate(rendered_titles):
             t_abs = os.path.abspath(t['path']).replace("\\", "/")
-            # Prefer relative path so Resolve/FCP resolve it from the FCPXML's folder
-            rel = t.get('rel_path')
-            t_uri = quote(rel.replace("\\", "/"), safe="/") if rel else "file:///" + quote(t_abs.lstrip("/"))
-            t_dur = to_fcpxml_time(to_frames(t.get("duration", 3.0)))
+            # Using absolute file URIs ensures DaVinci Resolve finds the PNGs immediately on the same machine
+            # safe="/" ensures : is encoded as %3A, and spaces are naturally encoded as %20 by quote()
+            t_uri = "file:///" + quote(t_abs, safe="/")
             title_resources.append(
                 f'    <asset id="title_{i}" name="{os.path.basename(t_abs)}" src="{t_uri}"'
-                f' format="r_img" duration="{t_dur}" hasVideo="1" hasAudio="0">\n'
-                f'      <media-rep kind="original-media" src="{t_uri}"/>\n'
-                f'    </asset>'
+                f' format="r1" hasVideo="1" hasAudio="0"/>'
             )
-
-    img_format_line = f'    <format id="r_img" width="{width}" height="{height}"/>' if rendered_titles else ''
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -166,7 +161,6 @@ def build_xml(
         "\n".join(diagnostic_lines),
         '  <resources>',
         f'    <format id="r1" frameDuration="{frame_dur}" width="{width}" height="{height}" colorSpace="1-1-1 (Rec. 709)"/>',
-        img_format_line,
         f'    <asset id="r2" name="{base_name}" uid="{uid}" src="{file_uri}"',
         f'           format="r1" duration="{asset_time}" hasVideo="1" hasAudio="1">',
         f'      <media-rep kind="original-media" src="{file_uri}"/>',
@@ -211,12 +205,19 @@ def build_xml(
                 title_offset_f += to_frames(seg['end']) - to_frames(seg['start'])
             
             if found:
+                fade_duration = to_fcpxml_time(to_frames(0.5)) # 0.5 second fade
                 lines.append(
                     f'            <asset-clip ref="title_{i}" lane="1"'
                     f' offset="{to_fcpxml_time(title_offset_f)}"'
                     f' duration="{to_fcpxml_time(to_frames(t.get("duration", 3.0)))}"'
-                    f' start="0s" />'
+                    f' start="0s" format="r1">'
                 )
+                if t.get("fadeInOut"):
+                    lines.append(f'              <transition name="Cross Dissolve" offset="0s" duration="{fade_duration}" />')
+                    # Offset for out-fade is duration minus transition length
+                    out_offset = to_fcpxml_time(to_frames(t.get("duration", 3.0)) - to_frames(0.5))
+                    lines.append(f'              <transition name="Cross Dissolve" offset="{out_offset}" duration="{fade_duration}" />')
+                lines.append('            </asset-clip>')
 
     lines += [
         '          </spine>',

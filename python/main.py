@@ -237,13 +237,15 @@ def export_endpoint(req: ExportRequest):
                 template = templates_by_id.get(t.templateId, fallback_template) if t.templateId else fallback_template
                 filename = _ts_filename(t.startTime)
                 out_path = os.path.join(titles_dir, filename)
-                render_title(t.text, template, out_path, req.resolution or "1080p")
+                display_text = t.text.upper() if template.get("uppercase") else t.text
+                render_title(display_text, template, out_path, req.resolution or "1080p")
                 rendered_titles.append({
                     "path": out_path,
                     "rel_path": f"{TITLES_FOLDER}/{filename}" if TITLES_FOLDER else None,
                     "startTime": t.startTime,
                     "duration": t.duration,
-                    "text": t.text,
+                    "text": display_text,
+                    "fadeInOut": template.get("fadeInOut", False)
                 })
 
         xml = build_xml(

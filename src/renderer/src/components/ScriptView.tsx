@@ -18,6 +18,8 @@ export default function ScriptView() {
     removeTitle,
     titles,
     templates,
+    updateTemplate,
+    availableFonts,
     settings,
   } = useStore()
   
@@ -276,6 +278,30 @@ export default function ScriptView() {
               />
             </div>
 
+            <div className="flex items-center gap-2 py-1">
+              <input
+                type="checkbox"
+                id="title-uppercase"
+                checked={templates.find(t => t.id === selectedTemplateId)?.uppercase || false}
+                onChange={(e) => {
+                  if (selectedTemplateId) updateTemplate(selectedTemplateId, { uppercase: e.target.checked })
+                }}
+              />
+              <label htmlFor="title-uppercase" className="text-[10px] text-gray-500 uppercase font-bold cursor-pointer">Force Uppercase</label>
+            </div>
+
+            <div className="flex items-center gap-2 py-1">
+              <input
+                type="checkbox"
+                id="title-fade"
+                checked={templates.find(t => t.id === selectedTemplateId)?.fadeInOut || false}
+                onChange={(e) => {
+                  if (selectedTemplateId) updateTemplate(selectedTemplateId, { fadeInOut: e.target.checked })
+                }}
+              />
+              <label htmlFor="title-fade" className="text-[10px] text-gray-500 uppercase font-bold cursor-pointer">Fade In/Out</label>
+            </div>
+
             <div className="space-y-1">
               <label className="text-[10px] text-gray-500 uppercase font-bold">Template Style</label>
               <select
@@ -283,7 +309,18 @@ export default function ScriptView() {
                 onChange={(e) => setSelectedTemplateId(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
               >
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {templates.map(t => {
+                  const font = availableFonts.find(f => f.path === t.fontPath)
+                  return (
+                    <option 
+                      key={t.id} 
+                      value={t.id}
+                      style={{ fontFamily: font ? `"${font.name}"` : 'inherit' }}
+                    >
+                      {t.name}
+                    </option>
+                  )
+                })}
               </select>
             </div>
 
@@ -334,8 +371,38 @@ export default function ScriptView() {
                 onChange={(e) => setEditTemplateId(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white outline-none focus:border-blue-500"
               >
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {templates.map(t => {
+                  const font = availableFonts.find(f => f.path === t.fontPath)
+                  return (
+                    <option 
+                      key={t.id} 
+                      value={t.id}
+                      style={{ fontFamily: font ? `"${font.name}"` : 'inherit' }}
+                    >
+                      {t.name}
+                    </option>
+                  )
+                })}
               </select>
+            </div>
+
+            <div className="flex gap-4 py-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={templates.find(t => t.id === editTemplateId)?.uppercase || false}
+                  onChange={(e) => updateTemplate(editTemplateId, { uppercase: e.target.checked })}
+                />
+                <span className="text-[10px] text-gray-500 uppercase font-bold">All Caps</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={templates.find(t => t.id === editTemplateId)?.fadeInOut || false}
+                  onChange={(e) => updateTemplate(editTemplateId, { fadeInOut: e.target.checked })}
+                />
+                <span className="text-[10px] text-gray-500 uppercase font-bold">Fade</span>
+              </label>
             </div>
 
             <div className="space-y-1">
