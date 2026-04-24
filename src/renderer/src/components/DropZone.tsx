@@ -44,7 +44,7 @@ export default function DropZone({ onFile }: Props) {
   )
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 px-8">
+    <div className="flex-1 flex flex-col items-center justify-center h-full gap-6 px-8">
       <div
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
