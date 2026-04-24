@@ -46,20 +46,25 @@ def analyze(words: List[Dict], file_path: str, settings: Dict[str, Any]) -> Dict
         if remove_no_speech and words:
             _add_no_speech_cuts(words, cut_regions, min_silence_ms)
 
-    elif processing_mode == "speech":
-        from transcribe import extract_audio
-        from vad import get_speech_segments, speech_segments_to_cut_regions, get_audio_duration_from_wav
-        audio_path = extract_audio(file_path)
-        try:
-            segs = get_speech_segments(audio_path, min_silence_duration_ms=min_silence_ms)
-            dur = get_audio_duration_from_wav(audio_path)
-            cut_regions.extend(speech_segments_to_cut_regions(segs, dur, min_silence_ms))
-        finally:
-            if os.path.exists(audio_path):
-                os.unlink(audio_path)
+    else:  # signal mode — run whichever detectors are enabled and union the results
+        use_speech = settings.get("useSpeechDetection", True)
+        use_audio = settings.get("useAudioDetection", False)
+        vad_threshold = float(settings.get("vadSensitivity", 0.5))
 
-    else:  # audio_level
-        _add_audio_silence_cuts(file_path, cut_regions, silence_thresh_db, min_silence_ms)
+        if use_speech:
+            from transcribe import extract_audio
+            from vad import get_speech_segments, speech_segments_to_cut_regions, get_audio_duration_from_wav
+            audio_path = extract_audio(file_path)
+            try:
+                segs = get_speech_segments(audio_path, min_silence_duration_ms=min_silence_ms, threshold=vad_threshold)
+                dur = get_audio_duration_from_wav(audio_path)
+                cut_regions.extend(speech_segments_to_cut_regions(segs, dur, min_silence_ms))
+            finally:
+                if os.path.exists(audio_path):
+                    os.unlink(audio_path)
+
+        if use_audio:
+            _add_audio_silence_cuts(file_path, cut_regions, silence_thresh_db, min_silence_ms)
 
     return {"cut_regions": cut_regions}
 

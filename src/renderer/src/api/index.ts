@@ -56,12 +56,15 @@ export function analyzeFile(
     file_path: filePath,
     settings: {
       processingMode: settings.processingMode,
+      useAudioDetection: settings.useAudioDetection,
+      useSpeechDetection: settings.useSpeechDetection,
       removeNoSpeech: settings.removeNoSpeech,
       removeFillerWords: false, // handled in frontend — never ask Python to cut filler words
       silenceThresholdDb: settings.silenceThresholdDb,
       preCutPaddingMs: settings.preCutPaddingMs,
       postCutPaddingMs: settings.postCutPaddingMs,
       minSilenceDurationMs: settings.minSilenceDurationMs,
+      vadSensitivity: settings.vadSensitivity ?? 0.5,
     },
   })
 }

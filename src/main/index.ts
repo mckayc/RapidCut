@@ -373,15 +373,21 @@ async function waitForPython(maxWaitMs = 60_000): Promise<void> {
 }
 
 async function startServer(): Promise<{ success: boolean; error?: string }> {
-  // Always kill any existing server (ensures fresh code + correct FFMPEG_PATH env)
+  // If our own managed process is still running and healthy, reuse it
   if (pythonProcess) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${PYTHON_PORT}/health`)
+      if (res.ok) return { success: true }
+    } catch {}
     pythonProcess.kill()
     pythonProcess = null
   }
+
   await killPortWin(PYTHON_PORT)
 
-  // Note: installPipDeps is now handled by the SetupScreen and doesn't run on every launch,
-  // which significantly speeds up the startup time.
+  // Give Windows time to release the socket after the kill signal
+  await new Promise((r) => setTimeout(r, 800))
+
   await spawnPythonServer()
   try {
     await waitForPython()

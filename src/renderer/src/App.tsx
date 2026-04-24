@@ -18,39 +18,42 @@ type AppPhase = 'setup' | 'setup-from-main' | 'main'
 
 export default function App() {
   const [phase, setPhase] = useState<AppPhase>('setup')
-  const {
-    mode,
-    status,
-    statusMessage,
-    settings,
-    presets,
-    activePreset,
-    lastUsedModel,
-    setLastUsedModel,
-    setFile,
-    setStatus,
-    setWords,
-    setCutRegions,
-    logs,
-    addLog,
-    showTerminal,
-    setShowTerminal
-  } = useStore()
+
+  // Atomic selectors to prevent unnecessary re-renders of the whole App
+  const status = useStore((s) => s.status)
+  const statusMessage = useStore((s) => s.statusMessage)
+  const view = useStore((s) => s.view)
+  const audioPath = useStore((s) => s.audioPath)
+  const autoPlay = useStore((s) => s.autoPlay)
+  const playbackStopAt = useStore((s) => s.playbackStopAt)
+  const showTerminal = useStore((s) => s.showTerminal)
+  const logs = useStore((s) => s.logs)
+
+  // Actions (stable references)
+  const setFile = useStore((s) => s.setFile)
+  const setStatus = useStore((s) => s.setStatus)
+  const setWords = useStore((s) => s.setWords)
+  const setCutRegions = useStore((s) => s.setCutRegions)
+  const addLog = useStore((s) => s.addLog)
+  const setShowTerminal = useStore((s) => s.setShowTerminal)
+  const setIsPlaying = useStore((s) => s.setIsPlaying)
+  const setCurrentTime = useStore((s) => s.setCurrentTime)
+  const setPlaybackStopAt = useStore((s) => s.setPlaybackStopAt)
+  const setLastUsedModel = useStore((s) => s.setLastUsedModel)
+  const setTranscribeDuration = useStore((s) => s.setTranscribeDuration)
+
+  // Settings needed for logic but not necessarily for rendering the container
+  const settings = useStore((s) => s.settings)
+  const presets = useStore((s) => s.presets)
+  const activePreset = useStore((s) => s.activePreset)
 
   const [showFillerManager, setShowFillerManager] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const {
-    audioPath, 
-    setCurrentTime, 
-    setIsPlaying, 
-    autoPlay, 
-    playbackStopAt, 
-    setPlaybackStopAt 
-  } = useStore()
   
   const analyzeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsSaveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetsLoaded = useRef(false)
+  const currentFileId = useRef<string | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // Listen for logs from main process
@@ -184,7 +187,13 @@ export default function App() {
 
   const handleFile = useCallback(
     async (fp: string, fn: string) => {
+      const fileId = Math.random().toString(36).substring(7)
+      currentFileId.current = fileId
+      
+      const { settings, mode } = useStore.getState()
+
       setFile(fp, fn)
+      setStatus('transcribing', 'Initializing...')
 
       let words: { word: string; start: number; end: number }[] = []
       let duration = 0
@@ -197,8 +206,12 @@ export default function App() {
           const result = await transcribeFile(fp, settings.whisperModel, {
             minSilenceDurationMs: settings.minSilenceDurationMs
           })
-          useStore.getState().setLastUsedModel(settings.whisperModel)
-          useStore.getState().setTranscribeDuration((Date.now() - t0) / 1000)
+          
+          // Guard: If a new file was dropped while this was running, abort
+          if (currentFileId.current !== fileId) return
+
+          setLastUsedModel(settings.whisperModel)
+          setTranscribeDuration((Date.now() - t0) / 1000)
           words = result.words as Word[]
           duration = result.duration
           setWords(words, duration, result.audio_path)
@@ -211,6 +224,9 @@ export default function App() {
         setStatus('analyzing', 'Probing media…')
         try {
           const result = await probeFile(fp)
+          
+          if (currentFileId.current !== fileId) return
+
           duration = result.duration
           setWords([], duration)
         } catch (err) {
@@ -222,6 +238,8 @@ export default function App() {
       setStatus('analyzing', 'Analyzing…')
       try {
         const analysis = await analyzeFile(words, analyzeAudioPath, settings)
+        if (currentFileId.current !== fileId) return
+
         setCutRegions(analysis.cut_regions)
 
         if (mode === 'auto') {
@@ -236,22 +254,22 @@ export default function App() {
           const sourceDir = fp.replace(/[/\\][^/\\]+$/, '')
           const savePath = `${sourceDir}/${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`
           await window.electronAPI.writeFile(savePath, xml)
-          useStore.getState().clearFile()
+          setFile('', '') // Reset for next drop
           showToast(`Saved: ${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`)
         } else {
           setStatus('ready', '')
         }
       } catch (err) {
+        if (currentFileId.current !== fileId) return
         setStatus('error', err instanceof Error ? err.message : String(err))
       }
     },
-    [mode, settings],
+    [setFile, setStatus, setWords, setCutRegions, setLastUsedModel, setTranscribeDuration],
   )
 
   const isIdle = status === 'idle'
   const isLoading = status === 'transcribing' || status === 'analyzing'
   const isReady = status === 'ready'
-  const view = useStore((s) => s.view)
   const isError = status === 'error'
 
   const handleReady = useCallback(() => setPhase('main'), [])
@@ -382,7 +400,7 @@ export default function App() {
 
       {/* Terminal Toggle Button */}
       <button
-        onClick={() => setShowTerminal((s) => !s)}
+        onClick={() => setShowTerminal(!showTerminal)}
         className="fixed bottom-4 left-4 z-50 p-2 bg-gray-800 border border-gray-700 rounded-full shadow-lg hover:bg-gray-700 transition-colors"
         title="Toggle Background Logs"
       >

@@ -15,7 +15,7 @@ export interface Segment {
   end: number
 }
 
-export type ProcessingMode = 'audio_level' | 'speech' | 'transcription'
+export type ProcessingMode = 'signal' | 'transcription'
 
 export type WhisperModel =
   | 'tiny'
@@ -33,12 +33,15 @@ export type WhisperModel =
 
 export interface Settings {
   processingMode: ProcessingMode
+  useAudioDetection: boolean
+  useSpeechDetection: boolean
   removeNoSpeech: boolean
   removeFillerWords: boolean
   silenceThresholdDb: number
   preCutPaddingMs: number
   postCutPaddingMs: number
   minSilenceDurationMs: number
+  vadSensitivity: number
   whisperModel: WhisperModel
   titleResolution: string
   defaultTitleDuration: number

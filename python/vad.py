@@ -17,7 +17,8 @@ def _get_model():
 def get_speech_segments(
     audio_path: str,
     min_silence_duration_ms: int = 300,
-    min_speech_duration_ms: int = 100,
+    min_speech_duration_ms: int = 30,
+    threshold: float = 0.5,
 ) -> list:
     """Run Silero VAD on a 16kHz mono WAV. Returns [{"start": float, "end": float}] in seconds."""
     from silero_vad import get_speech_timestamps
@@ -35,6 +36,7 @@ def get_speech_segments(
     raw = get_speech_timestamps(
         wav, model,
         sampling_rate=16000,
+        threshold=threshold,
         min_silence_duration_ms=min_silence_duration_ms,
         min_speech_duration_ms=min_speech_duration_ms,
         return_seconds=True,

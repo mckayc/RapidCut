@@ -17,12 +17,15 @@ export const DEFAULT_FILLER_WORDS = [
 
 export const DEFAULT_SETTINGS: Settings = {
   processingMode: 'transcription',
+  useAudioDetection: false,
+  useSpeechDetection: true,
   removeNoSpeech: true,
   removeFillerWords: false,
   silenceThresholdDb: -40,
   preCutPaddingMs: 50,
   postCutPaddingMs: 50,
   minSilenceDurationMs: 300,
+  vadSensitivity: 0.5,
   whisperModel: 'base.en',
   titleResolution: '1080p',
   defaultTitleDuration: 3.0,
@@ -296,7 +299,29 @@ export const useStore = create<AppState>((set, get) => ({
   setAutoPlay: (autoPlay) => set({ autoPlay }),
   setPlaybackStopAt: (playbackStopAt) => set({ playbackStopAt }),
   videoDuration: 0,
-  setFile: (filePath, fileName) => set({ filePath, fileName }),
+  setFile: (filePath, fileName) => {
+    set({
+      filePath,
+      fileName,
+      words: [],
+      audioPath: null,
+      videoDuration: 0,
+      currentTime: 0,
+      cutRegions: [],
+      frontendCutRegions: [],
+      wordBaseStatus: [],
+      manualToggles: {},
+      manualTimeCuts: [],
+      history: [],
+      historyIndex: -1,
+      status: 'idle',
+      statusMessage: '',
+      logs: [],
+      lastTranscribeDuration: null,
+    })
+    // Ensure derived status is immediately recalculated (cleared) for the UI
+    get().recomputeWordStatus()
+  },
   clearFile: () =>
     set({
       filePath: null,
@@ -626,10 +651,28 @@ export const useStore = create<AppState>((set, get) => ({
   loadPresetsFromDisk: (data) => {
     const { active, presets } = data
     if (!presets || !Object.keys(presets).length) return
-    const activeName = presets[active] ? active : Object.keys(presets)[0]
-    const preset = presets[activeName]
+
+    // Migrate old processingMode values from before the signal/transcription split
+    const migratedPresets: typeof presets = {}
+    for (const [name, preset] of Object.entries(presets)) {
+      const s = preset.settings
+      let migratedSettings = { ...s }
+      const rawMode = s.processingMode as string
+      if (rawMode === 'audio_level') {
+        migratedSettings = { ...migratedSettings, processingMode: 'signal', useAudioDetection: true, useSpeechDetection: false }
+      } else if (rawMode === 'speech') {
+        migratedSettings = { ...migratedSettings, processingMode: 'signal', useAudioDetection: false, useSpeechDetection: true }
+      }
+      migratedSettings.useAudioDetection ??= false
+      migratedSettings.useSpeechDetection ??= true
+      migratedSettings.vadSensitivity ??= 0.5
+      migratedPresets[name] = { ...preset, settings: migratedSettings as Settings }
+    }
+
+    const activeName = migratedPresets[active] ? active : Object.keys(migratedPresets)[0]
+    const preset = migratedPresets[activeName]
     set({
-      presets,
+      presets: migratedPresets,
       activePreset: activeName,
       settings: preset.settings,
       fillerWords: preset.fillerWords,
