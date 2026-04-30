@@ -1,46 +1,52 @@
 import React, { useCallback, useState } from 'react'
 
 interface Props {
-  onFile: (filePath: string, fileName: string) => void
+  onFiles: (files: Array<{ path: string; name: string }>) => void
 }
 
 const ACCEPTED = ['.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.mp3', '.wav', '.aac', '.m4a']
 
-export default function DropZone({ onFile }: Props) {
+export default function DropZone({ onFiles }: Props) {
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState('')
 
-  const handleFile = useCallback(
-    (file: File) => {
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      if (!ACCEPTED.includes(ext)) {
-        setError(`Unsupported format: ${ext}. Accepted: ${ACCEPTED.join(', ')}`)
-        return
+  const processFiles = useCallback(
+    (rawFiles: FileList | File[]) => {
+      const valid: Array<{ path: string; name: string }> = []
+      const invalid: string[] = []
+      for (const file of Array.from(rawFiles)) {
+        const ext = '.' + file.name.split('.').pop()?.toLowerCase()
+        if (ACCEPTED.includes(ext)) {
+          valid.push({ path: window.electronAPI.getFilePath(file), name: file.name })
+        } else {
+          invalid.push(ext)
+        }
       }
-      setError('')
-      const filePath = window.electronAPI.getFilePath(file)
-      onFile(filePath, file.name)
+      if (invalid.length) {
+        setError(`Unsupported format${invalid.length > 1 ? 's' : ''}: ${invalid.join(', ')}`)
+      } else {
+        setError('')
+      }
+      if (valid.length) onFiles(valid)
     },
-    [onFile],
+    [onFiles],
   )
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setDragging(false)
-      const file = e.dataTransfer.files[0]
-      if (file) handleFile(file)
+      processFiles(e.dataTransfer.files)
     },
-    [handleFile],
+    [processFiles],
   )
 
   const onInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) handleFile(file)
+      if (e.target.files?.length) processFiles(e.target.files)
       e.target.value = ''
     },
-    [handleFile],
+    [processFiles],
   )
 
   return (
@@ -58,7 +64,7 @@ export default function DropZone({ onFile }: Props) {
       >
         <div className="text-5xl">🎬</div>
         <div className="text-center">
-          <p className="text-gray-200 font-medium text-lg">Drop your video or audio file here</p>
+          <p className="text-gray-200 font-medium text-lg">Drop video or audio files here</p>
           <p className="text-gray-500 text-sm mt-1">or click to browse</p>
         </div>
         <p className="text-gray-600 text-xs text-center">{ACCEPTED.join('  ')}</p>

@@ -55,6 +55,9 @@ export default function App() {
   const presetsLoaded = useRef(false)
   const currentFileId = useRef<string | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  const fileQueue = useRef<Array<{ path: string; name: string }>>([])
+  const handleFileRef = useRef<((fp: string, fn: string) => Promise<void>) | null>(null)
+  const [queueRemaining, setQueueRemaining] = useState(0)
 
   // Listen for logs from main process
   useEffect(() => {
@@ -189,7 +192,7 @@ export default function App() {
     async (fp: string, fn: string) => {
       const fileId = Math.random().toString(36).substring(7)
       currentFileId.current = fileId
-      
+
       const { settings, mode } = useStore.getState()
 
       setFile(fp, fn)
@@ -206,7 +209,7 @@ export default function App() {
           const result = await transcribeFile(fp, settings.whisperModel, {
             minSilenceDurationMs: settings.minSilenceDurationMs
           })
-          
+
           // Guard: If a new file was dropped while this was running, abort
           if (currentFileId.current !== fileId) return
 
@@ -217,20 +220,28 @@ export default function App() {
           setWords(words, duration, result.audio_path)
           analyzeAudioPath = result.audio_path
         } catch (err) {
+          if (currentFileId.current !== fileId) return
           setStatus('error', err instanceof Error ? err.message : String(err))
+          const next = fileQueue.current.shift()
+          setQueueRemaining(fileQueue.current.length)
+          if (next) handleFileRef.current?.(next.path, next.name)
           return
         }
       } else {
         setStatus('analyzing', 'Probing media…')
         try {
           const result = await probeFile(fp)
-          
+
           if (currentFileId.current !== fileId) return
 
           duration = result.duration
           setWords([], duration)
         } catch (err) {
+          if (currentFileId.current !== fileId) return
           setStatus('error', err instanceof Error ? err.message : String(err))
+          const next = fileQueue.current.shift()
+          setQueueRemaining(fileQueue.current.length)
+          if (next) handleFileRef.current?.(next.path, next.name)
           return
         }
       }
@@ -247,6 +258,9 @@ export default function App() {
           const keepSegments = useStore.getState().getKeepSegments()
           if (!keepSegments.length) {
             setStatus('error', 'Nothing to export — all segments would be cut.')
+            const next = fileQueue.current.shift()
+            setQueueRemaining(fileQueue.current.length)
+            if (next) handleFileRef.current?.(next.path, next.name)
             return
           }
           const sequenceName = fn.replace(/\.[^.]+$/, '') + ' — RapidCut'
@@ -254,17 +268,40 @@ export default function App() {
           const sourceDir = fp.replace(/[/\\][^/\\]+$/, '')
           const savePath = `${sourceDir}/${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`
           await window.electronAPI.writeFile(savePath, xml)
-          setFile('', '') // Reset for next drop
           showToast(`Saved: ${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`)
+          const next = fileQueue.current.shift()
+          setQueueRemaining(fileQueue.current.length)
+          if (next) {
+            handleFileRef.current?.(next.path, next.name)
+          } else {
+            setFile('', '') // Reset for next drop
+          }
         } else {
           setStatus('ready', '')
         }
       } catch (err) {
         if (currentFileId.current !== fileId) return
         setStatus('error', err instanceof Error ? err.message : String(err))
+        const next = fileQueue.current.shift()
+        setQueueRemaining(fileQueue.current.length)
+        if (next) handleFileRef.current?.(next.path, next.name)
       }
     },
     [setFile, setStatus, setWords, setCutRegions, setLastUsedModel, setTranscribeDuration],
+  )
+
+  useEffect(() => {
+    handleFileRef.current = handleFile
+  }, [handleFile])
+
+  const handleFiles = useCallback(
+    (files: Array<{ path: string; name: string }>) => {
+      const [first, ...rest] = files
+      fileQueue.current = rest
+      setQueueRemaining(rest.length)
+      if (first) handleFile(first.path, first.name)
+    },
+    [handleFile],
   )
 
   const isIdle = status === 'idle'
@@ -309,7 +346,7 @@ export default function App() {
                 onOpenFillerManager={() => setShowFillerManager(true)}
               />
             </aside>
-            <DropZone onFile={handleFile} />
+            <DropZone onFiles={handleFiles} />
           </>
         )}
 
@@ -318,6 +355,9 @@ export default function App() {
           <div className="flex flex-col items-center justify-center w-full gap-4">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-gray-400 text-sm">{statusMessage || 'Processing…'}</p>
+            {queueRemaining > 0 && (
+              <p className="text-gray-600 text-xs">{queueRemaining} file{queueRemaining !== 1 ? 's' : ''} queued</p>
+            )}
           </div>
         )}
 
