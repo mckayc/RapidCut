@@ -209,12 +209,30 @@ export default function App() {
 
         {/* Loading state */}
         {isLoading && (
-          <div className="flex flex-col items-center justify-center w-full gap-4">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-gray-400 text-sm">{statusMessage || 'Processing…'}</p>
-            {queueRemaining > 0 && (
-              <p className="text-gray-600 text-xs">{queueRemaining} file{queueRemaining !== 1 ? 's' : ''} queued</p>
-            )}
+          <div className="flex flex-col items-center justify-center w-full gap-5 px-8">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-gray-300 text-sm font-medium">{statusMessage || 'Processing…'}</p>
+              {queueRemaining > 0 && (
+                <p className="text-gray-600 text-xs">{queueRemaining} file{queueRemaining !== 1 ? 's' : ''} queued</p>
+              )}
+            </div>
+            {/* Inline activity log */}
+            <div className="w-full max-w-xl bg-black/60 border border-gray-800 rounded-lg overflow-hidden font-mono text-[10px]">
+              <div className="px-3 py-1.5 bg-gray-800/60 border-b border-gray-800 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                <span className="text-gray-500 uppercase tracking-widest font-bold">Activity</span>
+              </div>
+              <div className="h-40 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap flex flex-col-reverse">
+                {logs.length === 0 ? (
+                  <span className="text-gray-700 italic">Waiting for output…</span>
+                ) : (
+                  [...logs].reverse().map((log, i) => (
+                    <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )}
 

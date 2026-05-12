@@ -33,21 +33,34 @@
   "build": {
     "appId": "com.rapidcut.app",
     "productName": "RapidCut",
+    "asar": true,
+    "electronLanguages": ["en-US"],
     "directories": {
       "output": "dist"
     },
     "files": [
-      "out/**/*"
+      "out/**/*",
+      "!out/**/*.map"
     ],
     "extraResources": [
-      "python/**/*",
+      {
+        "from": "python",
+        "to": "python",
+        "filter": ["**/*", "!venv/**", "!__pycache__/**", "!*.pyc"]
+      },
       "requirements.txt"
     ],
     "mac": {
-      "category": "public.app-category.video"
+      "category": "public.app-category.video",
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }]
     },
     "win": {
-      "target": "nsis"
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
     }
   }
 }

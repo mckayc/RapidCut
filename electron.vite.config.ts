@@ -26,9 +26,16 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     build: {
+      minify: 'esbuild',
+      sourcemap: false,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')
+        },
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+          }
         }
       }
     },
