@@ -72,10 +72,21 @@ impl Default for AppState {
 
 // ─── Path Helpers ─────────────────────────────────────────────────────────────
 
+fn exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default()
+}
+
 fn python_scripts_dir(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../python")
     } else {
+        let by_exe = exe_dir().join("python");
+        if by_exe.exists() {
+            return by_exe;
+        }
         app.path().resource_dir().unwrap_or_default().join("python")
     }
 }
@@ -84,6 +95,10 @@ fn requirements_path(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../requirements.txt")
     } else {
+        let by_exe = exe_dir().join("requirements.txt");
+        if by_exe.exists() {
+            return by_exe;
+        }
         app.path().resource_dir().unwrap_or_default().join("requirements.txt")
     }
 }
