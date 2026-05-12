@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useStore } from './store/useStore'
 import { probeFile, analyzeFile, exportXml } from './api'
 import Header from './components/Header'
@@ -35,8 +37,9 @@ export default function App() {
   const [queueRemaining, setQueueRemaining] = useState(0)
 
   useEffect(() => {
-    const remove = window.electronAPI.on('app-log', (log: string) => addLog(log))
-    return () => remove()
+    let unlisten: (() => void) | null = null
+    listen<string>('app-log', (event: { payload: string }) => addLog(event.payload)).then((f: () => void) => { unlisten = f })
+    return () => { unlisten?.() }
   }, [])
 
   useEffect(() => {
@@ -49,8 +52,8 @@ export default function App() {
   useEffect(() => {
     ;(async () => {
       try {
-        const dataPath = await window.electronAPI.getUserDataPath()
-        const raw = await window.electronAPI.readFile(`${dataPath}/presets.json`)
+        const dataPath = await invoke<string>('get_user_data_path')
+        const raw = await invoke<string | null>('read_file', { path: `${dataPath}/presets.json` })
         if (raw) {
           useStore.getState().loadPresetsFromDisk(JSON.parse(raw))
         } else {
@@ -70,11 +73,11 @@ export default function App() {
     if (presetsSaveDebounce.current) clearTimeout(presetsSaveDebounce.current)
     presetsSaveDebounce.current = setTimeout(async () => {
       try {
-        const dataPath = await window.electronAPI.getUserDataPath()
-        await window.electronAPI.writeFile(
-          `${dataPath}/presets.json`,
-          JSON.stringify({ active: activePreset, presets }, null, 2),
-        )
+        const dataPath = await invoke<string>('get_user_data_path')
+        await invoke('write_file', {
+          path: `${dataPath}/presets.json`,
+          content: JSON.stringify({ active: activePreset, presets }, null, 2),
+        })
       } catch { /* ignore */ }
     }, 500)
   }, [presets, activePreset])
@@ -93,7 +96,6 @@ export default function App() {
       setFile(fp, fn)
       setStatus('analyzing', 'Probing media…')
 
-      // Probe for duration
       let duration = 0
       try {
         const result = await probeFile(fp)
@@ -109,7 +111,6 @@ export default function App() {
         return
       }
 
-      // Analyze with signal detection
       setStatus('analyzing', 'Analyzing…')
       try {
         const analysis = await analyzeFile(fp, settings)
@@ -124,7 +125,6 @@ export default function App() {
         return
       }
 
-      // Export
       setStatus('exporting', 'Saving…')
       try {
         const keepSegments = useStore.getState().getKeepSegments()
@@ -140,7 +140,7 @@ export default function App() {
         const { xml } = await exportXml(fp, keepSegments, sequenceName)
         const sourceDir = fp.replace(/[/\\][^/\\]+$/, '')
         const savePath = `${sourceDir}/${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`
-        await window.electronAPI.writeFile(savePath, xml)
+        await invoke('write_file', { path: savePath, content: xml })
 
         showToast(`Saved: ${fn.replace(/\.[^.]+$/, '')}_rapidcut.fcpxml`)
 
@@ -194,7 +194,6 @@ export default function App() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Settings sidebar — always visible when not loading */}
         {!isLoading && !isError && (
           <>
             <aside className="w-64 flex-shrink-0 border-r border-gray-800 overflow-y-auto bg-[#1a1d27]">
@@ -207,7 +206,6 @@ export default function App() {
           </>
         )}
 
-        {/* Loading state */}
         {isLoading && (
           <div className="flex flex-col items-center justify-center w-full gap-5 px-8">
             <div className="flex flex-col items-center gap-3">
@@ -217,7 +215,6 @@ export default function App() {
                 <p className="text-gray-600 text-xs">{queueRemaining} file{queueRemaining !== 1 ? 's' : ''} queued</p>
               )}
             </div>
-            {/* Inline activity log */}
             <div className="w-full max-w-xl bg-black/60 border border-gray-800 rounded-lg overflow-hidden font-mono text-[10px]">
               <div className="px-3 py-1.5 bg-gray-800/60 border-b border-gray-800 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
@@ -236,7 +233,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Error state */}
         {isError && (
           <div className="flex flex-col items-center justify-center w-full gap-4 px-8">
             <p className="text-red-400 text-sm bg-red-400/10 px-5 py-3 rounded-xl max-w-md text-center">
@@ -252,7 +248,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Terminal toggle */}
       <button
         onClick={() => setShowTerminal(!showTerminal)}
         className="fixed bottom-4 left-4 z-50 p-2 bg-gray-800 border border-gray-700 rounded-full shadow-lg hover:bg-gray-700 transition-colors"

@@ -40,24 +40,3 @@ export interface DepsStatus {
   ffmpeg: DepInfo
   silero_vad: DepInfo
 }
-
-declare global {
-  interface Window {
-    electronAPI: {
-      getFilePath: (file: File) => string
-      showSaveDialog: (defaultName: string) => Promise<string | null>
-      writeFile: (filePath: string, content: string) => Promise<void>
-      readFile: (filePath: string) => Promise<string | null>
-      getUserDataPath: () => Promise<string>
-      checkDeps: () => Promise<DepsStatus>
-      installPipDeps: () => Promise<{ success: boolean; output: string }>
-      installFfmpeg: () => Promise<{ success: boolean; output: string; manual?: string }>
-      startServer: () => Promise<{ success: boolean; error?: string }>
-      openExternal: (url: string) => Promise<void>
-      getDepsVerified: () => Promise<boolean>
-      setDepsVerified: () => Promise<void>
-      clearDepsVerified: () => Promise<void>
-      on: (channel: string, callback: (...args: any[]) => void) => () => void
-    }
-  }
-}

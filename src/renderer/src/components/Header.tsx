@@ -11,7 +11,10 @@ export default function Header({ onSetup }: Props) {
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-[#0f1117] select-none">
       <div className="flex items-center gap-3">
-        <span className="text-blue-400 font-bold text-lg tracking-tight">RapidCut</span>
+        <div className="flex flex-col leading-tight">
+          <span className="text-blue-400 font-bold text-lg tracking-tight">RapidCut</span>
+          <span className="text-gray-600 text-[10px] font-mono">v0.1.5</span>
+        </div>
         {filePath && (
           <button
             onClick={clearFile}

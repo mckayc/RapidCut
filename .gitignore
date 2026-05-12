@@ -1,8 +1,32 @@
+# Dependencies
 node_modules/
-out/
+
+# Build output
 dist/
+out/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Python
+python/venv/
 __pycache__/
 *.pyc
-.env
+*.pyo
+
+# Logs & crash dumps
 *.log
-python/venv/
+rapidcut-crash.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

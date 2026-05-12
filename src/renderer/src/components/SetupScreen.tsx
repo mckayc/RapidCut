@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useStore } from '../store/useStore'
 import type { DepInfo, DepsStatus } from '../types'
 
@@ -47,7 +49,7 @@ function DepRow({ name, description, info, installState, installOutput, manualUr
           )}
           {manualUrl && missing && (
             <button
-              onClick={() => window.electronAPI.openExternal(manualUrl)}
+              onClick={() => invoke('open_external', { url: manualUrl })}
               className="text-xs text-blue-400 hover:text-blue-300 transition-colors px-2 py-1 rounded border border-blue-400/30 hover:border-blue-300/50"
             >
               Manual
@@ -100,13 +102,13 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const checkDeps = useCallback(async (autoLaunch = false) => {
     setChecking(true)
     try {
-      const result = await window.electronAPI.checkDeps()
+      const result = await invoke<DepsStatus>('check_deps')
       setDeps(result)
       if (autoLaunch && result?.python?.available && result?.ffmpeg?.available && result?.silero_vad?.available) {
         setServerState('installing')
-        const serverResult = await window.electronAPI.startServer()
+        const serverResult = await invoke<{ success: boolean; error?: string }>('start_server')
         if (serverResult.success) {
-          await window.electronAPI.setDepsVerified()
+          try { await invoke('set_deps_verified') } catch { /* non-fatal */ }
           setServerState('success')
           onReady()
         } else {
@@ -124,19 +126,17 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
       checkDeps(false)
       return
     }
-    // At startup: if deps were verified before, skip the check and launch directly
     ;(async () => {
-      const verified = await window.electronAPI.getDepsVerified()
+      const verified = await invoke<boolean>('get_deps_verified')
       if (verified) {
         setChecking(false)
         setServerState('installing')
-        const result = await window.electronAPI.startServer()
+        const result = await invoke<{ success: boolean; error?: string }>('start_server')
         if (result.success) {
           setServerState('success')
           onReady()
         } else {
-          // Server failed — clear marker and fall back to full dep check
-          await window.electronAPI.clearDepsVerified()
+          await invoke('clear_deps_verified')
           setServerState('idle')
           setServerError('')
           checkDeps(false)
@@ -147,12 +147,20 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     })()
   }, [])
 
+  // Wire up app-log events from Rust to the store
+  useEffect(() => {
+    const addLog = useStore.getState().addLog
+    let unlisten: (() => void) | null = null
+    listen<string>('app-log', (event: { payload: string }) => addLog(event.payload)).then((f: () => void) => { unlisten = f })
+    return () => { unlisten?.() }
+  }, [])
+
   const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.silero_vad?.available)
 
   async function handleInstallPip() {
     setPipState('installing')
     setPipOutput('')
-    const result = await window.electronAPI.installPipDeps()
+    const result = await invoke<{ success: boolean; output: string }>('install_pip_deps')
     setPipState(result.success ? 'success' : 'error')
     setPipOutput(result.output)
     if (result.success) await checkDeps()
@@ -162,7 +170,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     setFfmpegState('installing')
     setFfmpegOutput('')
     setFfmpegManual(undefined)
-    const result = await window.electronAPI.installFfmpeg()
+    const result = await invoke<{ success: boolean; output: string; manual?: string }>('install_ffmpeg')
     setFfmpegState(result.success ? 'success' : 'error')
     setFfmpegOutput(result.output)
     if (result.manual) setFfmpegManual(result.manual)
@@ -172,9 +180,9 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   async function handleLaunch() {
     setServerState('installing')
     setServerError('')
-    const result = await window.electronAPI.startServer()
+    const result = await invoke<{ success: boolean; error?: string }>('start_server')
     if (result.success) {
-      await window.electronAPI.setDepsVerified()
+      try { await invoke('set_deps_verified') } catch { /* non-fatal */ }
       setServerState('success')
       onReady()
     } else {
@@ -187,12 +195,26 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const isWin = platform.includes('win')
   const isMac = platform.includes('mac')
 
-  // While fast-path launch is in progress, show a minimal loading state
   if (serverState === 'installing' && !deps && !checking) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#0f1117] gap-4">
+      <div className="flex flex-col items-center justify-center h-screen bg-[#0f1117] gap-4 px-8">
         <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
         <p className="text-gray-500 text-sm">Starting RapidCut…</p>
+        <div className="w-full max-w-lg bg-black/50 border border-gray-800 rounded-lg flex flex-col overflow-hidden font-mono text-[10px]" style={{ height: '180px' }}>
+          <div className="px-3 py-1.5 bg-gray-800/50 border-b border-gray-800 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+            <span className="text-gray-500 uppercase tracking-widest font-bold">Activity</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap flex flex-col-reverse">
+            {logs.length === 0 ? (
+              <span className="text-gray-700 italic">Waiting for Python server…</span>
+            ) : (
+              [...logs].reverse().map((log, i) => (
+                <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     )
   }
@@ -307,7 +329,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
           <p className="mt-4 text-xs text-gray-600 text-center">
             Python must be installed manually.{' '}
             <button
-              onClick={() => window.electronAPI.openExternal('https://www.python.org/downloads/')}
+              onClick={() => invoke('open_external', { url: 'https://www.python.org/downloads/' })}
               className="text-blue-400 hover:underline"
             >
               Download Python
