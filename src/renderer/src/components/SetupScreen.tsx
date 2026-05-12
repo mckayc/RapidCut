@@ -16,16 +16,10 @@ interface DepRowProps {
 
 function StatusIcon({ info, state }: { info: DepInfo | null; state: InstallState }) {
   if (state === 'installing') {
-    return (
-      <span className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin inline-block" />
-    )
+    return <span className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin inline-block" />
   }
-  if (info?.available) {
-    return <span className="text-green-400 text-lg">✓</span>
-  }
-  if (info !== null && !info.available) {
-    return <span className="text-red-400 text-lg">✗</span>
-  }
+  if (info?.available) return <span className="text-green-400 text-lg">✓</span>
+  if (info !== null && !info.available) return <span className="text-red-400 text-lg">✗</span>
   return <span className="text-gray-600 text-lg">?</span>
 }
 
@@ -42,18 +36,12 @@ function DepRow({ name, description, info, installState, installOutput, manualUr
           <div className="min-w-0">
             <span className="text-white font-medium text-sm">{name}</span>
             <p className="text-gray-500 text-xs mt-0.5">{description}</p>
-            {info?.version && (
-              <p className="text-gray-600 text-xs font-mono mt-0.5 truncate">{info.version}</p>
-            )}
+            {info?.version && <p className="text-gray-600 text-xs font-mono mt-0.5 truncate">{info.version}</p>}
           </div>
         </div>
-
         <div className="flex items-center gap-2 flex-shrink-0">
           {installState === 'error' && (
-            <button
-              onClick={() => setShowOutput((s) => !s)}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            >
+            <button onClick={() => setShowOutput((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
               {showOutput ? 'Hide log' : 'Show log'}
             </button>
           )}
@@ -75,17 +63,12 @@ function DepRow({ name, description, info, installState, installOutput, manualUr
             </button>
           )}
           {done && installState !== 'installing' && (
-            <span className="text-xs text-green-400 px-2 py-1 bg-green-400/10 rounded">
-              Ready
-            </span>
+            <span className="text-xs text-green-400 px-2 py-1 bg-green-400/10 rounded">Ready</span>
           )}
         </div>
       </div>
-
       {showOutput && installOutput && (
-        <pre className="text-xs text-gray-400 bg-gray-900 rounded-md p-3 overflow-x-auto max-h-32 font-mono whitespace-pre-wrap">
-          {installOutput}
-        </pre>
+        <pre className="text-xs text-gray-400 bg-gray-900 rounded-md p-3 overflow-x-auto max-h-32 font-mono whitespace-pre-wrap">{installOutput}</pre>
       )}
     </div>
   )
@@ -97,27 +80,21 @@ interface Props {
 }
 
 export default function SetupScreen({ onReady, fromMain = false }: Props) {
-  const { setAvailableFonts, logs } = useStore()
+  const { logs } = useStore()
   const [deps, setDeps] = useState<DepsStatus | null>(null)
   const [checking, setChecking] = useState(true)
-
   const [pipState, setPipState] = useState<InstallState>('idle')
   const [pipOutput, setPipOutput] = useState('')
-
   const [ffmpegState, setFfmpegState] = useState<InstallState>('idle')
   const [ffmpegOutput, setFfmpegOutput] = useState('')
   const [ffmpegManual, setFfmpegManual] = useState<string | undefined>()
-
-  const [serverState, setServerState] = useState<InstallState>('idle') // State for the Python server itself
-  const [serverError, setServerError] = useState('') // Error message if server fails to start
+  const [serverState, setServerState] = useState<InstallState>('idle')
+  const [serverError, setServerError] = useState('')
   const logEndRef = useRef<HTMLDivElement>(null)
-  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing' // Tracks if any installation is in progress
+  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing'
 
-  // Auto-scroll the terminal logs
   useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
   const checkDeps = useCallback(async (autoLaunch = false) => {
@@ -125,22 +102,11 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     try {
       const result = await window.electronAPI.checkDeps()
       setDeps(result)
-      
-      // Load system fonts once we know environment is ready
-      const fonts = await window.electronAPI.getSystemFonts()
-      setAvailableFonts(fonts)
-
-      // If all dependencies are available and we're in auto-launch mode, try to start the server
-      if (
-        autoLaunch &&
-        result?.python?.available &&
-        result?.ffmpeg?.available &&
-        result?.silero_vad?.available
-      ) {
-        // All deps present — launch immediately without user interaction
+      if (autoLaunch && result?.python?.available && result?.ffmpeg?.available && result?.silero_vad?.available) {
         setServerState('installing')
         const serverResult = await window.electronAPI.startServer()
         if (serverResult.success) {
+          await window.electronAPI.setDepsVerified()
           setServerState('success')
           onReady()
         } else {
@@ -151,11 +117,35 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     } finally {
       setChecking(false)
     }
-  }, [onReady, pipState, ffmpegState]) // Added pipState and ffmpegState to deps for re-evaluation
+  }, [onReady])
 
   useEffect(() => {
-    checkDeps(!fromMain) // auto-launch only when opened at startup, not from within the app
-  }, [checkDeps])
+    if (fromMain) {
+      checkDeps(false)
+      return
+    }
+    // At startup: if deps were verified before, skip the check and launch directly
+    ;(async () => {
+      const verified = await window.electronAPI.getDepsVerified()
+      if (verified) {
+        setChecking(false)
+        setServerState('installing')
+        const result = await window.electronAPI.startServer()
+        if (result.success) {
+          setServerState('success')
+          onReady()
+        } else {
+          // Server failed — clear marker and fall back to full dep check
+          await window.electronAPI.clearDepsVerified()
+          setServerState('idle')
+          setServerError('')
+          checkDeps(false)
+        }
+      } else {
+        checkDeps(true)
+      }
+    })()
+  }, [])
 
   const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.silero_vad?.available)
 
@@ -176,33 +166,15 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
     setFfmpegState(result.success ? 'success' : 'error')
     setFfmpegOutput(result.output)
     if (result.manual) setFfmpegManual(result.manual)
-    if (result.success) {
-      await checkDeps()
-    }
+    if (result.success) await checkDeps()
   }
 
-  async function handleLaunch() { // This handles the "Launch RapidCut" button
+  async function handleLaunch() {
     setServerState('installing')
     setServerError('')
     const result = await window.electronAPI.startServer()
     if (result.success) {
-      // Verify required Python packages are present
-      const KNOWN_PACKAGES = ['whisper', 'pydub', 'pillow', 'whisperx', 'silero_vad']
-      try {
-        const res = await fetch('http://127.0.0.1:8765/setup/check')
-        if (res.ok) {
-          const pyCheck = (await res.json()) as Record<string, { available: boolean }>
-          const missing = KNOWN_PACKAGES.filter(
-            (k) => k in pyCheck && pyCheck[k] && !pyCheck[k].available,
-          )
-          if (missing.length > 0) {
-            await handleInstallPip()
-            // Don't recurse — if packages are still missing, errors will surface on use
-          }
-        }
-      } catch {
-        // Server reachable but check failed — proceed anyway, errors will surface on use
-      }
+      await window.electronAPI.setDepsVerified()
       setServerState('success')
       onReady()
     } else {
@@ -215,119 +187,99 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const isWin = platform.includes('win')
   const isMac = platform.includes('mac')
 
+  // While fast-path launch is in progress, show a minimal loading state
+  if (serverState === 'installing' && !deps && !checking) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#0f1117] gap-4">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-gray-500 text-sm">Starting RapidCut…</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-[#0f1117] px-8">
       <div className="w-full max-w-lg flex flex-col h-full max-h-[85vh]">
-        {/* Header */}
         <div className="mb-8 text-center">
           <h1 className="text-blue-400 font-bold text-2xl tracking-tight mb-1">RapidCut</h1>
           <p className="text-gray-500 text-sm">Checking required dependencies…</p>
         </div>
 
-        {/* Dep list */}
         <div className="bg-[#1a1d27] rounded-xl border border-gray-800 px-5 mb-5">
           <DepRow
             name="Python"
-            description="Required to run the transcription engine"
+            description="Required to run the analysis engine"
             info={checking ? null : deps?.python ?? { available: false }}
             installState="idle"
             installOutput=""
             manualUrl="https://www.python.org/downloads/"
           />
-
           <DepRow
             name="Python packages"
-            description="faster-whisper, whisperx, pydub, fastapi, Pillow, silero-vad"
+            description="pydub, fastapi, uvicorn, silero-vad"
             info={
-              checking
-                ? null
+              checking ? null
                 : deps?.python?.available
-                  ? { available: pipState === 'success' || (deps?.python?.available && pipState === 'idle') }
+                  ? { available: pipState === 'success' || pipState === 'idle' }
                   : { available: false }
             }
             installState={pipState}
             installOutput={pipOutput}
             onInstall={deps?.python?.available ? handleInstallPip : undefined}
           />
-
           <DepRow
             name="Silero VAD"
             description="Voice Activity Detection engine"
             info={
-              checking
-                ? null
+              checking ? null
                 : deps?.python?.available && deps?.silero_vad?.available
-                  ? { available: true, version: deps?.silero_vad?.version }
+                  ? { available: true, version: deps.silero_vad.version }
                   : { available: false }
             }
             installState={pipState}
             installOutput={pipOutput}
             onInstall={deps?.python?.available && !deps?.silero_vad?.available ? handleInstallPip : undefined}
           />
-
-          <DepRow
-            name="WhisperX"
-            description="For highly accurate word-level timestamps"
-            info={
-              checking
-                ? null
-                : deps?.python?.available && deps?.whisperx?.available
-                  ? { available: true, version: deps?.whisperx?.version }
-                  : { available: false }
-            }
-            installState={pipState} // WhisperX is a pip package, so its install state is tied to pipState
-            installOutput={pipOutput}
-            onInstall={deps?.python?.available && !deps?.whisperx?.available ? handleInstallPip : undefined}
-          />
-
           <DepRow
             name="ffmpeg"
             description={
-              isWin
-                ? 'Audio/video processor — installed via winget'
-                : isMac
-                  ? 'Audio/video processor — installed via Homebrew'
+              isWin ? 'Audio/video processor — installed via winget'
+                : isMac ? 'Audio/video processor — installed via Homebrew'
                   : 'Audio/video processor'
             }
             info={checking ? null : deps?.ffmpeg ?? { available: false }}
             installState={ffmpegState}
             installOutput={ffmpegOutput}
             manualUrl={ffmpegManual}
-            onInstall={!deps?.ffmpeg.available ? handleInstallFfmpeg : undefined}
+            onInstall={!deps?.ffmpeg?.available ? handleInstallFfmpeg : undefined}
           />
         </div>
 
-        {/* Activity Terminal — always visible so the user can see what's happening */}
         <div className="flex-1 min-h-[150px] mb-5 bg-black/50 border border-gray-800 rounded-lg flex flex-col overflow-hidden font-mono text-[10px]">
-            <div className="px-3 py-1.5 bg-gray-800/50 border-b border-gray-800 flex justify-between items-center">
-              <span className="text-gray-500 uppercase tracking-widest font-bold">Activity Logs</span>
-              {(checking || isWorking) && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap">
-              {logs.length === 0 ? (
-                <span className="text-gray-700 italic">{checking ? 'Setting up environment…' : 'No activity yet.'}</span>
-              ) : (
-                logs.map((log, i) => <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>)
-              )}
-              <div ref={logEndRef} />
-            </div>
+          <div className="px-3 py-1.5 bg-gray-800/50 border-b border-gray-800 flex justify-between items-center">
+            <span className="text-gray-500 uppercase tracking-widest font-bold">Activity Logs</span>
+            {(checking || isWorking) && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
           </div>
+          <div className="flex-1 overflow-y-auto p-3 text-gray-400 whitespace-pre-wrap">
+            {logs.length === 0 ? (
+              <span className="text-gray-700 italic">{checking ? 'Setting up environment…' : 'No activity yet.'}</span>
+            ) : (
+              logs.map((log, i) => <div key={i} className="mb-0.5 border-l border-gray-800 pl-2">{log}</div>)
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </div>
 
-        {/* Server error */}
         {serverState === 'error' && serverError && (
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-xs">
             {serverError}
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {fromMain && (
-              <button
-                onClick={onReady}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-              >
+              <button onClick={onReady} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
                 ← Back
               </button>
             )}
@@ -346,16 +298,12 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
               disabled={!allReady || serverState === 'installing'}
               className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shadow-lg"
             >
-              {serverState === 'installing'
-                ? 'Starting…'
-                : allReady
-                  ? 'Launch RapidCut →'
-                  : 'Dependencies required'}
+              {serverState === 'installing' ? 'Starting…' : allReady ? 'Launch RapidCut →' : 'Dependencies required'}
             </button>
           )}
         </div>
 
-        {!deps?.python.available && !checking && (
+        {deps && !deps.python?.available && !checking && (
           <p className="mt-4 text-xs text-gray-600 text-center">
             Python must be installed manually.{' '}
             <button

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from 'electron'
 import { join, delimiter } from 'path'
 import { spawn, exec, ChildProcess } from 'child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import { promisify } from 'util'
 import { pathToFileURL } from 'url'
 
@@ -12,13 +12,10 @@ const PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3'
 let pythonProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
-// Cache for dependency status to speed up load times. Includes faster_whisper.
-let cachedDeps: { python: any; ffmpeg: any; whisperx: any; silero_vad: any; faster_whisper: any } | null = null
-
-// Resolves after venv is created and packages are installed (or failed)
+let cachedDeps: { python: any; ffmpeg: any; silero_vad: any } | null = null
 let venvInitPromise: Promise<void> | null = null
 
-// ─── Python 3.12 virtual environment ──────────────────────────────────────
+// ─── Python virtual environment ────────────────────────────────────────────
 
 function getVenvDir(): string {
   return app.isPackaged
@@ -44,7 +41,7 @@ async function ensureVenv(): Promise<void> {
   const venvPython = getVenvPython()
   if (existsSync(venvPython)) return
 
-  mainWindow?.webContents.send('app-log', '[Main] Creating Python 3.12 virtual environment...')
+  mainWindow?.webContents.send('app-log', '[Main] Creating Python virtual environment...')
   const py3 = process.platform === 'win32' ? 'py -3.12' : 'python3.12'
   await execAsync(`${py3} -m venv "${getVenvDir()}"`, { timeout: 60_000 })
   mainWindow?.webContents.send('app-log', '[Main] Virtual environment created. Installing packages...')
@@ -55,13 +52,11 @@ async function ensureVenv(): Promise<void> {
   }
 }
 
-// Register media protocol to allow loading local audio/video files
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
 ])
 
 // ─── ffmpeg path persistence ───────────────────────────────────────────────
-// Stores a known-good ffmpeg bin dir across sessions (survives winget / download).
 
 function ffmpegPathFile(): string {
   return join(app.getPath('userData'), 'ffmpeg-bin-path.txt')
@@ -73,18 +68,12 @@ function storedFfmpegBin(): string | null {
     if (!existsSync(f)) return null
     const v = readFileSync(f, 'utf-8').trim()
     return v || null
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 function storeFfmpegBin(binDir: string): void {
-  try {
-    writeFileSync(ffmpegPathFile(), binDir, 'utf-8')
-  } catch {}
+  try { writeFileSync(ffmpegPathFile(), binDir, 'utf-8') } catch {}
 }
-
-// ─── Local downloaded ffmpeg ───────────────────────────────────────────────
 
 function localFfmpegDir(): string {
   return join(app.getPath('userData'), 'ffmpeg')
@@ -93,28 +82,20 @@ function localFfmpegDir(): string {
 function findLocalFfmpegBin(): string | null {
   const base = localFfmpegDir()
   if (!existsSync(base)) return null
-  // Extracted zip: base/<version-folder>/bin/ffmpeg.exe  OR  base/bin/ffmpeg.exe
   for (const entry of readdirSync(base)) {
     const binDir = join(base, entry, 'bin')
-    if (existsSync(join(binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'))) {
-      return binDir
-    }
+    if (existsSync(join(binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'))) return binDir
   }
   const directBin = join(base, 'bin')
   if (existsSync(join(directBin, 'ffmpeg.exe'))) return directBin
   return null
 }
 
-/** Build env with every known ffmpeg bin dir prepended to PATH. */
 function envWithFfmpeg(): NodeJS.ProcessEnv {
   const dirs = [findLocalFfmpegBin(), storedFfmpegBin()].filter(Boolean) as string[]
   if (!dirs.length) return { ...process.env }
   return { ...process.env, PATH: dirs.join(delimiter) + delimiter + (process.env.PATH ?? '') }
 }
-
-// ─── Registry PATH lookup (Windows only) ─────────────────────────────────
-// winget modifies the registry PATH but not the current process PATH.
-// This queries the registry to find ffmpeg installed in the same session.
 
 async function findFfmpegInRegistryPath(): Promise<string | null> {
   if (process.platform !== 'win32') return null
@@ -128,42 +109,16 @@ async function findFfmpegInRegistryPath(): Promise<string | null> {
   try {
     const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps}"`, { timeout: 10_000 })
     return stdout.trim() || null
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
-// ─── Dependency checks ────────────────────────────────────────────────────
+// ─── Dependency checks ─────────────────────────────────────────────────────
 
 async function checkPython(): Promise<{ available: boolean; version?: string }> {
   try {
     const { stdout } = await execAsync(`${PYTHON_BIN} --version`)
     return { available: true, version: stdout.trim() }
-  } catch {
-    return { available: false }
-  }
-}
-
-async function checkFasterWhisper(): Promise<{ available: boolean }> {
-  const venvPython = getVenvPython()
-  if (!existsSync(venvPython)) return { available: false }
-  try {
-    await execAsync(`"${venvPython}" -c "from faster_whisper import WhisperModel"`, { timeout: 15_000 })
-    return { available: true }
-  } catch {
-    return { available: false }
-  }
-}
-
-async function checkWhisperX(): Promise<{ available: boolean }> {
-  const venvPython = getVenvPython()
-  if (!existsSync(venvPython)) return { available: false }
-  try {
-    await execAsync(`"${venvPython}" -c "import whisperx"`, { timeout: 15_000 })
-    return { available: true }
-  } catch {
-    return { available: false }
-  }
+  } catch { return { available: false } }
 }
 
 async function checkSileroVad(): Promise<{ available: boolean }> {
@@ -172,19 +127,15 @@ async function checkSileroVad(): Promise<{ available: boolean }> {
   try {
     await execAsync(`"${venvPython}" -c "from silero_vad import load_silero_vad"`, { timeout: 15_000 })
     return { available: true }
-  } catch {
-    return { available: false }
-  }
+  } catch { return { available: false } }
 }
 
 async function checkFfmpeg(): Promise<{ available: boolean; version?: string }> {
-  // 1. Try with known bin dirs already in env
   try {
     const { stdout } = await execAsync('ffmpeg -version', { env: envWithFfmpeg() })
     return { available: true, version: stdout.split('\n')[0].trim() }
   } catch {}
 
-  // 2. Fresh winget install? Check registry PATH (Windows only)
   if (process.platform === 'win32') {
     const registryBin = await findFfmpegInRegistryPath()
     if (registryBin) {
@@ -196,11 +147,10 @@ async function checkFfmpeg(): Promise<{ available: boolean; version?: string }> 
       } catch {}
     }
   }
-
   return { available: false }
 }
 
-// ─── Dependency installation ──────────────────────────────────────────────
+// ─── Dependency installation ───────────────────────────────────────────────
 
 async function installPipDeps(): Promise<{ success: boolean; output: string }> {
   const reqPath = app.isPackaged
@@ -213,47 +163,26 @@ async function installPipDeps(): Promise<{ success: boolean; output: string }> {
       shell: process.platform === 'win32'
     })
     let output = ''
-
-    child.stdout.on('data', (data) => {
-      const str = data.toString()
-      output += str
-      mainWindow?.webContents.send('app-log', str)
-    })
-    child.stderr.on('data', (data) => {
-      const str = data.toString()
-      output += str
-      mainWindow?.webContents.send('app-log', `[ERR] ${str}`)
-    })
-
-    child.on('error', (err) => {
-      resolve({ success: false, output: err.message })
-    })
-
-    child.on('close', (code) => {
-      resolve({ success: code === 0, output })
-    })
+    child.stdout.on('data', (data) => { const s = data.toString(); output += s; mainWindow?.webContents.send('app-log', s) })
+    child.stderr.on('data', (data) => { const s = data.toString(); output += s; mainWindow?.webContents.send('app-log', `[ERR] ${s}`) })
+    child.on('error', (err) => resolve({ success: false, output: err.message }))
+    child.on('close', (code) => resolve({ success: code === 0, output }))
   })
 }
 
 async function installFfmpegWindows(): Promise<{ success: boolean; output: string; manual?: string }> {
-  // Method 1: winget
   try {
     const { stdout, stderr } = await execAsync(
       'winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements',
       { timeout: 300_000 },
     )
-    // winget modifies registry PATH; find and persist the bin dir for this session
     const registryBin = await findFfmpegInRegistryPath()
     if (registryBin) storeFfmpegBin(registryBin)
     return { success: true, output: (stdout + stderr).trim() }
-  } catch {
-    // winget unavailable or failed — fall through to direct download
-  }
+  } catch {}
 
-  // Method 2: PowerShell download from gyan.dev into userData
   const destDir = localFfmpegDir()
   mkdirSync(destDir, { recursive: true })
-
   const psLines = [
     `$ProgressPreference = 'SilentlyContinue'`,
     `$ErrorActionPreference = 'Stop'`,
@@ -269,44 +198,42 @@ async function installFfmpegWindows(): Promise<{ success: boolean; output: strin
       { timeout: 600_000 },
     )
     const binDir = findLocalFfmpegBin()
-    if (binDir) {
-      return { success: true, output: `ffmpeg installed to: ${binDir}\n${stdout}`.trim() }
-    }
-    return {
-      success: false,
-      output: `Download finished but ffmpeg.exe not found.\n${stdout}\n${stderr}`.trim(),
-      manual: 'https://ffmpeg.org/download.html#build-windows',
-    }
+    if (binDir) return { success: true, output: `ffmpeg installed to: ${binDir}\n${stdout}`.trim() }
+    return { success: false, output: `Download finished but ffmpeg.exe not found.\n${stdout}\n${stderr}`.trim(), manual: 'https://ffmpeg.org/download.html#build-windows' }
   } catch (err: unknown) {
-    return {
-      success: false,
-      output: String((err as { message?: string })?.message ?? err),
-      manual: 'https://ffmpeg.org/download.html#build-windows',
-    }
+    return { success: false, output: String((err as { message?: string })?.message ?? err), manual: 'https://ffmpeg.org/download.html#build-windows' }
   }
 }
 
 async function installFfmpeg(): Promise<{ success: boolean; output: string; manual?: string }> {
   if (process.platform === 'win32') return installFfmpegWindows()
-
   if (process.platform === 'darwin') {
     try {
       const { stdout, stderr } = await execAsync('brew install ffmpeg', { timeout: 600_000 })
       return { success: true, output: (stdout + stderr).trim() }
     } catch (err: unknown) {
-      return {
-        success: false,
-        output: String((err as { message?: string })?.message ?? err),
-        manual: 'https://formulae.brew.sh/formula/ffmpeg',
-      }
+      return { success: false, output: String((err as { message?: string })?.message ?? err), manual: 'https://formulae.brew.sh/formula/ffmpeg' }
     }
   }
+  return { success: false, output: 'Automatic install not supported on this platform.', manual: 'https://ffmpeg.org/download.html' }
+}
 
-  return {
-    success: false,
-    output: 'Automatic install not supported on this platform.',
-    manual: 'https://ffmpeg.org/download.html',
-  }
+// ─── Deps-verified marker ──────────────────────────────────────────────────
+
+function depsVerifiedPath(): string {
+  return join(app.getPath('userData'), 'deps-ok.json')
+}
+
+function getDepsVerified(): boolean {
+  return existsSync(depsVerifiedPath())
+}
+
+function setDepsVerified(): void {
+  try { writeFileSync(depsVerifiedPath(), JSON.stringify({ verified: true, ts: Date.now() }), 'utf-8') } catch {}
+}
+
+function clearDepsVerified(): void {
+  try { if (existsSync(depsVerifiedPath())) unlinkSync(depsVerifiedPath()) } catch {}
 }
 
 // ─── Python server ─────────────────────────────────────────────────────────
@@ -314,9 +241,7 @@ async function installFfmpeg(): Promise<{ success: boolean; output: string; manu
 async function killPortWin(port: number): Promise<void> {
   if (process.platform !== 'win32') return
   const ps = `Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }`
-  try {
-    await execAsync(`powershell -NoProfile -Command "${ps}"`, { timeout: 8_000 })
-  } catch {}
+  try { await execAsync(`powershell -NoProfile -Command "${ps}"`, { timeout: 8_000 }) } catch {}
 }
 
 async function resolveFfmpegExe(): Promise<string> {
@@ -327,7 +252,6 @@ async function resolveFfmpegExe(): Promise<string> {
     const first = stdout.trim().split('\n')[0].trim()
     if (first) return first
   } catch {}
-  // Fall back to bare name; Python will raise a clear error if missing
   return 'ffmpeg'
 }
 
@@ -346,9 +270,7 @@ async function spawnPythonServer(): Promise<void> {
   pythonProcess.stdout?.on('data', (d) => mainWindow?.webContents.send('app-log', d.toString()))
   pythonProcess.stderr?.on('data', (d) => mainWindow?.webContents.send('app-log', `[PY-ERR] ${d.toString()}`))
   pythonProcess.on('exit', (code) => {
-    const msg = `[Python] Process exited with code ${code}`
-    console.log(msg)
-    mainWindow?.webContents.send('app-log', `[FATAL] ${msg}`)
+    mainWindow?.webContents.send('app-log', `[FATAL] Python process exited with code ${code}`)
     pythonProcess = null
   })
 }
@@ -359,21 +281,16 @@ async function waitForPython(maxWaitMs = 60_000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       attempts++
-      if (attempts % 10 === 0) {
-        mainWindow?.webContents.send('app-log', `[Main] Connection attempt ${attempts} to http://127.0.0.1:${PYTHON_PORT}...`)
-      }
+      if (attempts % 10 === 0) mainWindow?.webContents.send('app-log', `[Main] Connecting to server (attempt ${attempts})…`)
       const res = await fetch(`http://127.0.0.1:${PYTHON_PORT}/health`)
       if (res.ok) return
-    } catch {
-      // not ready yet
-    }
+    } catch {}
     await new Promise((r) => setTimeout(r, 300))
   }
   throw new Error('Python server failed to start within timeout')
 }
 
 async function startServer(): Promise<{ success: boolean; error?: string }> {
-  // If our own managed process is still running and healthy, reuse it
   if (pythonProcess) {
     try {
       const res = await fetch(`http://127.0.0.1:${PYTHON_PORT}/health`)
@@ -384,10 +301,7 @@ async function startServer(): Promise<{ success: boolean; error?: string }> {
   }
 
   await killPortWin(PYTHON_PORT)
-
-  // Give Windows time to release the socket after the kill signal
   await new Promise((r) => setTimeout(r, 800))
-
   await spawnPythonServer()
   try {
     await waitForPython()
@@ -430,9 +344,7 @@ app.whenReady().then(() => {
       const url = new URL(request.url)
       const decodedPath = decodeURIComponent(url.searchParams.get('path') || '')
       if (!decodedPath) throw new Error('No path provided to media protocol')
-      
-      const fileUrl = pathToFileURL(decodedPath).toString()
-      return net.fetch(fileUrl, { headers: request.headers })
+      return net.fetch(pathToFileURL(decodedPath).toString(), { headers: request.headers })
     } catch (err) {
       console.error(`[Main] Media protocol error: ${err}`)
       return new Response('Invalid Path', { status: 400 })
@@ -441,22 +353,16 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  // Ensure venv exists and packages are installed, then cache dep results.
-  // check-deps IPC awaits this before returning so the UI always sees final state.
+  // Ensure venv exists and cache dep results for the setup screen
   venvInitPromise = ensureVenv()
     .then(async () => {
-      const [p, f, w, v, fw] = await Promise.all([
-        checkPython(),
-        checkFfmpeg(),
-        checkWhisperX(),
-        checkSileroVad(),
-        checkFasterWhisper()
-      ])
-      cachedDeps = { python: p, ffmpeg: f, whisperx: w, silero_vad: v, faster_whisper: fw }
+      const [p, f, v] = await Promise.all([checkPython(), checkFfmpeg(), checkSileroVad()])
+      cachedDeps = { python: p, ffmpeg: f, silero_vad: v }
     })
     .catch((err: unknown) => {
       mainWindow?.webContents.send('app-log', `[Main] Auto-setup error: ${err}`)
     })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -467,44 +373,38 @@ app.on('window-all-closed', () => {
 })
 
 app.on('quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill()
-    pythonProcess = null
-  }
+  if (pythonProcess) { pythonProcess.kill(); pythonProcess = null }
 })
 
 // ─── IPC ──────────────────────────────────────────────────────────────────
 
 ipcMain.handle('check-deps', async () => {
-  // Wait for venv init (no-op if already resolved)
   if (venvInitPromise) await venvInitPromise
   if (cachedDeps) return cachedDeps
-
-  const [python, ffmpeg, whisperx, silero_vad, faster_whisper] = await Promise.all([
-    checkPython(),
-    checkFfmpeg(),
-    checkWhisperX(),
-    checkSileroVad(),
-    checkFasterWhisper()
-  ])
-  cachedDeps = { python, ffmpeg, whisperx, silero_vad, faster_whisper }
+  const [python, ffmpeg, silero_vad] = await Promise.all([checkPython(), checkFfmpeg(), checkSileroVad()])
+  cachedDeps = { python, ffmpeg, silero_vad }
   return cachedDeps
 })
 
 ipcMain.handle('install-pip-deps', async () => {
-  // Ensure venv exists before installing (handles manual retry after first-run failure)
   await ensureVenv().catch(() => {})
   const res = await installPipDeps()
   if (res.success) cachedDeps = null
   return res
 })
+
 ipcMain.handle('install-ffmpeg', async () => {
   const res = await installFfmpeg()
-  if (res.success) cachedDeps = null // Force re-check after install
+  if (res.success) cachedDeps = null
   return res
 })
+
 ipcMain.handle('start-server', async () => startServer())
 ipcMain.handle('open-external', (_event, url: string) => shell.openExternal(url))
+
+ipcMain.handle('get-deps-verified', () => getDepsVerified())
+ipcMain.handle('set-deps-verified', () => setDepsVerified())
+ipcMain.handle('clear-deps-verified', () => clearDepsVerified())
 
 ipcMain.handle('show-save-dialog', async (_, defaultName: string) => {
   if (!mainWindow) return null
@@ -525,39 +425,3 @@ ipcMain.handle('read-file', (_event, filePath: string) => {
 })
 
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'))
-
-ipcMain.handle('get-system-fonts', async () => {
-  const fonts: Array<{ name: string; path: string }> = []
-  if (process.platform === 'win32') {
-    const fontDir = 'C:\\Windows\\Fonts'
-    if (existsSync(fontDir)) {
-      const files = readdirSync(fontDir)
-      for (const file of files) {
-        const lower = file.toLowerCase()
-        if (lower.endsWith('.ttf') || lower.endsWith('.otf')) {
-          fonts.push({ 
-            name: file.replace(/\.(ttf|otf)$/i, ''), 
-            path: join(fontDir, file) 
-          })
-        }
-      }
-    }
-  } else if (process.platform === 'darwin') {
-    const dirs = ['/Library/Fonts', '/System/Library/Fonts', join(app.getPath('home'), 'Library/Fonts')]
-    for (const dir of dirs) {
-      if (existsSync(dir)) {
-        const files = readdirSync(dir)
-        for (const file of files) {
-          const lower = file.toLowerCase()
-          if (lower.endsWith('.ttf') || lower.endsWith('.otf')) {
-            fonts.push({ 
-              name: file.replace(/\.(ttf|otf)$/i, ''), 
-              path: join(dir, file) 
-            })
-          }
-        }
-      }
-    }
-  }
-  return fonts.sort((a, b) => a.name.localeCompare(b.name))
-})

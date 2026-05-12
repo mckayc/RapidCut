@@ -1,7 +1,25 @@
 import os
+import subprocess
 import tempfile
 import wave
 import torch
+
+_FFMPEG = os.environ.get("FFMPEG_PATH") or "ffmpeg"
+
+
+def extract_audio(video_path: str) -> str:
+    """Extract audio from video to a temporary 16kHz mono WAV."""
+    fd, tmp = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        subprocess.run(
+            [_FFMPEG, "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", tmp, "-y"],
+            check=True,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(f"ffmpeg not found at '{_FFMPEG}'. Install ffmpeg or restart after installation.")
+    return tmp
 
 _VAD_MODEL = None
 
@@ -77,23 +95,3 @@ def speech_segments_to_cut_regions(
 def get_audio_duration_from_wav(audio_path: str) -> float:
     with wave.open(audio_path, "rb") as wf:
         return wf.getnframes() / wf.getframerate()
-
-
-def extract_segment_to_wav(audio_path: str, start_s: float, end_s: float) -> str:
-    """Extract a time slice from a WAV to a new temp WAV. Caller must unlink the returned path."""
-    with wave.open(audio_path, "rb") as wf:
-        sr = wf.getframerate()
-        n_ch = wf.getnchannels()
-        sw = wf.getsampwidth()
-        wf.setpos(int(start_s * sr))
-        n_frames = int((end_s - start_s) * sr)
-        chunk = wf.readframes(max(n_frames, 0))
-
-    fd, tmp = tempfile.mkstemp(suffix=".wav")
-    os.close(fd)
-    with wave.open(tmp, "wb") as out:
-        out.setnchannels(n_ch)
-        out.setsampwidth(sw)
-        out.setframerate(sr)
-        out.writeframes(chunk)
-    return tmp
