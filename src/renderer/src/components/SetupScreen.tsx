@@ -85,6 +85,9 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const { logs } = useStore()
   const [deps, setDeps] = useState<DepsStatus | null>(null)
   const [checking, setChecking] = useState(true)
+  const [pythonState, setPythonState] = useState<InstallState>('idle')
+  const [pythonOutput, setPythonOutput] = useState('')
+  const [pythonManual, setPythonManual] = useState<string | undefined>()
   const [pipState, setPipState] = useState<InstallState>('idle')
   const [pipOutput, setPipOutput] = useState('')
   const [ffmpegState, setFfmpegState] = useState<InstallState>('idle')
@@ -94,7 +97,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const [serverError, setServerError] = useState('')
   const [autoInstalling, setAutoInstalling] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
-  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing' || autoInstalling
+  const isWorking = pythonState === 'installing' || pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing' || autoInstalling
 
   useEffect(() => {
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' })
@@ -103,8 +106,21 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const autoInstallDeps = useCallback(async (depsStatus: DepsStatus) => {
     setAutoInstalling(true)
     try {
+      let current = depsStatus
+
+      // Auto-install Python if missing (this can take a while - it's a real installer download)
+      if (!current.python?.available) {
+        setPythonState('installing')
+        const result = await invoke<{ success: boolean; output: string; manual?: string }>('install_python')
+        setPythonState(result.success ? 'success' : 'error')
+        setPythonOutput(result.output)
+        if (result.manual) setPythonManual(result.manual)
+        current = await invoke<DepsStatus>('check_deps')
+        setDeps(current)
+      }
+
       // Auto-install ffmpeg if missing
-      if (!depsStatus.ffmpeg?.available) {
+      if (!current.ffmpeg?.available) {
         setFfmpegState('installing')
         const result = await invoke<{ success: boolean; output: string; manual?: string }>('install_ffmpeg')
         setFfmpegState(result.success ? 'success' : 'error')
@@ -113,7 +129,7 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
       }
 
       // Auto-install pip packages if Python is available
-      if (depsStatus.python?.available && !depsStatus.silero_vad?.available) {
+      if (current.python?.available && !current.silero_vad?.available) {
         setPipState('installing')
         const result = await invoke<{ success: boolean; output: string }>('install_pip_deps')
         setPipState(result.success ? 'success' : 'error')
@@ -159,8 +175,8 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
           setServerState('error')
           setServerError(serverResult.error ?? 'Unknown error')
         }
-      } else if (autoLaunch && result?.python?.available) {
-        // Python is available but some other deps are missing - auto-install them
+      } else if (autoLaunch && result) {
+        // Some deps are missing - attempt to auto-install everything we can
         await autoInstallDeps(result)
       }
     } finally {
@@ -203,6 +219,17 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   }, [])
 
   const allReady = !!(deps?.python?.available && deps?.ffmpeg?.available && deps?.silero_vad?.available)
+
+  async function handleInstallPython() {
+    setPythonState('installing')
+    setPythonOutput('')
+    setPythonManual(undefined)
+    const result = await invoke<{ success: boolean; output: string; manual?: string }>('install_python')
+    setPythonState(result.success ? 'success' : 'error')
+    setPythonOutput(result.output)
+    if (result.manual) setPythonManual(result.manual)
+    if (result.success) await checkDeps()
+  }
 
   async function handleInstallPip() {
     setPipState('installing')
@@ -279,9 +306,10 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
             name="Python"
             description="Required to run the analysis engine"
             info={checking ? null : deps?.python ?? { available: false }}
-            installState="idle"
-            installOutput=""
-            manualUrl="https://www.python.org/downloads/"
+            installState={pythonState}
+            installOutput={pythonOutput}
+            manualUrl={pythonManual}
+            onInstall={!deps?.python?.available ? handleInstallPython : undefined}
           />
           <DepRow
             name="Python packages"
@@ -372,11 +400,11 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
           )}
         </div>
 
-        {deps && !deps.python?.available && !checking && (
+        {deps && !deps.python?.available && !checking && pythonManual && (
           <p className="mt-4 text-xs text-gray-600 text-center">
-            Python must be installed manually.{' '}
+            Automatic Python install failed — install it manually.{' '}
             <button
-              onClick={() => invoke('open_external', { url: 'https://www.python.org/downloads/' })}
+              onClick={() => invoke('open_external', { url: pythonManual })}
               className="text-blue-400 hover:underline"
             >
               Download Python

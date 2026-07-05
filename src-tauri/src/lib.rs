@@ -133,6 +133,10 @@ fn local_ffmpeg_dir(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().unwrap_or_default().join("ffmpeg")
 }
 
+fn python_bin_file(app: &AppHandle) -> PathBuf {
+    app.path().app_data_dir().unwrap_or_default().join("python-bin-path.txt")
+}
+
 fn deps_verified_path(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().unwrap_or_default().join("deps-ok.json")
 }
@@ -148,6 +152,51 @@ fn stored_ffmpeg_bin(app: &AppHandle) -> Option<String> {
 
 fn store_ffmpeg_bin(app: &AppHandle, bin_dir: &str) {
     let _ = std::fs::write(ffmpeg_path_file(app), bin_dir);
+}
+
+fn stored_python_bin(app: &AppHandle) -> Option<String> {
+    std::fs::read_to_string(python_bin_file(app))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn store_python_bin(app: &AppHandle, exe_path: &str) {
+    let _ = std::fs::write(python_bin_file(app), exe_path);
+}
+
+/// Resolves which "python" executable to invoke: a previously-cached path (set after
+/// a winget install performed by this app), falling back to whatever is on PATH.
+fn resolve_python_bin(app: &AppHandle) -> String {
+    if let Some(stored) = stored_python_bin(app) {
+        if PathBuf::from(&stored).exists() {
+            return stored;
+        }
+    }
+    if cfg!(target_os = "windows") { "python".to_string() } else { "python3".to_string() }
+}
+
+#[cfg(target_os = "windows")]
+fn find_python_in_registry_path() -> Option<String> {
+    // A winget install updates the Machine/User PATH in the registry, but this
+    // already-running process's inherited PATH won't reflect it until restart.
+    // Re-read the registry PATH directly to locate the freshly installed python.exe.
+    let ps = concat!(
+        "$m = [System.Environment]::GetEnvironmentVariable('PATH','Machine'); ",
+        "$u = [System.Environment]::GetEnvironmentVariable('PATH','User'); ",
+        "$env:PATH = $m + ';' + $u + ';' + $env:PATH; ",
+        "$c = Get-Command python -ErrorAction SilentlyContinue; ",
+        "if ($c) { $c.Source } else { '' }"
+    );
+    Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps])
+        .no_window()
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if s.is_empty() { None } else { Some(s) }
+        })
 }
 
 fn find_local_ffmpeg_bin(app: &AppHandle) -> Option<String> {
@@ -245,15 +294,31 @@ fn run_streaming(app: &AppHandle, mut cmd: Command) -> InstallResult {
 
 // ─── Dep Checks ───────────────────────────────────────────────────────────────
 
-fn check_python_sync() -> DepInfo {
-    let bin = if cfg!(target_os = "windows") { "python" } else { "python3" };
-    match Command::new(bin).arg("--version").no_window().output() {
-        Ok(out) if out.status.success() => DepInfo {
-            available: true,
-            version: Some(String::from_utf8_lossy(&out.stdout).trim().to_string()),
-        },
-        _ => DepInfo { available: false, version: None },
+fn check_python_sync(app: &AppHandle) -> DepInfo {
+    let bin = resolve_python_bin(app);
+    if let Ok(out) = Command::new(&bin).arg("--version").no_window().output() {
+        if out.status.success() {
+            return DepInfo {
+                available: true,
+                version: Some(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            };
+        }
     }
+
+    #[cfg(target_os = "windows")]
+    if let Some(exe) = find_python_in_registry_path() {
+        if let Ok(out) = Command::new(&exe).arg("--version").no_window().output() {
+            if out.status.success() {
+                store_python_bin(app, &exe);
+                return DepInfo {
+                    available: true,
+                    version: Some(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+                };
+            }
+        }
+    }
+
+    DepInfo { available: false, version: None }
 }
 
 fn check_silero_vad_sync(app: &AppHandle) -> DepInfo {
@@ -318,8 +383,8 @@ fn ensure_venv_sync(app: &AppHandle) -> Result<(), String> {
     let venv = venv_dir(app);
     let _ = app.emit("app-log", "[Main] Creating Python virtual environment…");
 
-    let py_bin = if cfg!(target_os = "windows") { "python" } else { "python3" };
-    let status = Command::new(py_bin)
+    let py_bin = resolve_python_bin(app);
+    let status = Command::new(&py_bin)
         .args(["-m", "venv", &venv.to_string_lossy()])
         .no_window()
         .status();
@@ -383,8 +448,8 @@ async fn check_deps(
     }
     let app_clone = app.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let python = check_python_sync(&app_clone);
         let _ = ensure_venv_sync(&app_clone);
-        let python = check_python_sync();
         let ffmpeg = check_ffmpeg_sync(&app_clone);
         let silero_vad = check_silero_vad_sync(&app_clone);
         DepsStatus { python, ffmpeg, silero_vad }
@@ -393,6 +458,65 @@ async fn check_deps(
     .map_err(|e| e.to_string())?;
 
     *state.deps_cache.lock().unwrap() = Some(result.clone());
+    Ok(result)
+}
+
+#[tauri::command]
+async fn install_python(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<InstallResult, String> {
+    let app_clone = app.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("winget");
+            cmd.args([
+                "install", "--id", "Python.Python.3.13", "-e",
+                "--silent", "--accept-package-agreements", "--accept-source-agreements",
+            ]);
+            let r = run_streaming(&app_clone, cmd);
+            if r.success {
+                if let Some(exe) = find_python_in_registry_path() {
+                    store_python_bin(&app_clone, &exe);
+                }
+                return r;
+            }
+            InstallResult {
+                success: false,
+                output: r.output,
+                manual: Some("https://www.python.org/downloads/".to_string()),
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = Command::new("brew");
+            cmd.args(["install", "python3"]);
+            let r = run_streaming(&app_clone, cmd);
+            if r.success {
+                r
+            } else {
+                InstallResult {
+                    manual: Some("https://www.python.org/downloads/".to_string()),
+                    ..r
+                }
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        InstallResult {
+            success: false,
+            output: "Automatic install not supported on this platform.".to_string(),
+            manual: Some("https://www.python.org/downloads/".to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if result.success {
+        *state.deps_cache.lock().unwrap() = None;
+    }
     Ok(result)
 }
 
@@ -695,6 +819,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             check_deps,
+            install_python,
             install_pip_deps,
             install_ffmpeg,
             start_server,

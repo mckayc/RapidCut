@@ -30,3 +30,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Local build tooling (machine-specific paths/installers, not for distribution)
+build.bat
+vs_buildtools.exe
