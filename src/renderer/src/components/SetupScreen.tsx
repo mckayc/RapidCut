@@ -92,12 +92,56 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
   const [ffmpegManual, setFfmpegManual] = useState<string | undefined>()
   const [serverState, setServerState] = useState<InstallState>('idle')
   const [serverError, setServerError] = useState('')
+  const [autoInstalling, setAutoInstalling] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
-  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing'
+  const isWorking = pipState === 'installing' || ffmpegState === 'installing' || serverState === 'installing' || autoInstalling
 
   useEffect(() => {
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
+
+  const autoInstallDeps = useCallback(async (depsStatus: DepsStatus) => {
+    setAutoInstalling(true)
+    try {
+      // Auto-install ffmpeg if missing
+      if (!depsStatus.ffmpeg?.available) {
+        setFfmpegState('installing')
+        const result = await invoke<{ success: boolean; output: string; manual?: string }>('install_ffmpeg')
+        setFfmpegState(result.success ? 'success' : 'error')
+        setFfmpegOutput(result.output)
+        if (result.manual) setFfmpegManual(result.manual)
+      }
+
+      // Auto-install pip packages if Python is available
+      if (depsStatus.python?.available && !depsStatus.silero_vad?.available) {
+        setPipState('installing')
+        const result = await invoke<{ success: boolean; output: string }>('install_pip_deps')
+        setPipState(result.success ? 'success' : 'error')
+        setPipOutput(result.output)
+      }
+
+      // Re-check dependencies after auto-install attempts
+      await new Promise(r => setTimeout(r, 500))
+      const updatedDeps = await invoke<DepsStatus>('check_deps')
+      setDeps(updatedDeps)
+
+      // If all deps are now available, start the server
+      if (updatedDeps?.python?.available && updatedDeps?.ffmpeg?.available && updatedDeps?.silero_vad?.available) {
+        setServerState('installing')
+        const serverResult = await invoke<{ success: boolean; error?: string }>('start_server')
+        if (serverResult.success) {
+          try { await invoke('set_deps_verified') } catch { /* non-fatal */ }
+          setServerState('success')
+          onReady()
+        } else {
+          setServerState('error')
+          setServerError(serverResult.error ?? 'Unknown error')
+        }
+      }
+    } finally {
+      setAutoInstalling(false)
+    }
+  }, [onReady])
 
   const checkDeps = useCallback(async (autoLaunch = false) => {
     setChecking(true)
@@ -115,11 +159,14 @@ export default function SetupScreen({ onReady, fromMain = false }: Props) {
           setServerState('error')
           setServerError(serverResult.error ?? 'Unknown error')
         }
+      } else if (autoLaunch && result?.python?.available) {
+        // Python is available but some other deps are missing - auto-install them
+        await autoInstallDeps(result)
       }
     } finally {
       setChecking(false)
     }
-  }, [onReady])
+  }, [onReady, autoInstallDeps])
 
   useEffect(() => {
     if (fromMain) {
